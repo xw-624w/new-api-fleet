@@ -36,6 +36,8 @@ type QuotaDataLogParams struct {
 	TokenID   int
 	ChannelID int
 	NodeName  string
+	CacheReadTokens     int64
+	CacheCreationTokens int64
 }
 
 func UpdateQuotaData() {
@@ -152,7 +154,7 @@ func GetQuotaDataByUsername(username string, startTime int64, endTime int64, mod
 	var quotaDatas []*QuotaData
 	// 从quota_data表中查询数据
 	err = withQuotaModelFilter(DB.Table("quota_data").
-		Select("user_id, username, model_name, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used").
+		Select("user_id, username, model_name, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used, sum(cache_read_tokens) as cache_read_tokens, sum(cache_creation_tokens) as cache_creation_tokens").
 		Where("username = ? and created_at >= ? and created_at <= ?", username, startTime, endTime).
 		Group("user_id, username, model_name, created_at"), models).
 		Find(&quotaDatas).Error
@@ -163,7 +165,7 @@ func GetQuotaDataByUserId(userId int, startTime int64, endTime int64, models []s
 	var quotaDatas []*QuotaData
 	// 从quota_data表中查询数据
 	err = withQuotaModelFilter(DB.Table("quota_data").
-		Select("user_id, username, model_name, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used").
+		Select("user_id, username, model_name, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used, sum(cache_read_tokens) as cache_read_tokens, sum(cache_creation_tokens) as cache_creation_tokens").
 		Where("user_id = ? and created_at >= ? and created_at <= ?", userId, startTime, endTime).
 		Group("user_id, username, model_name, created_at"), models).
 		Find(&quotaDatas).Error
@@ -190,7 +192,7 @@ func GetQuotaDataModelNames(startTime int64, endTime int64, username string, use
 func GetQuotaDataGroupByUser(startTime int64, endTime int64) (quotaData []*QuotaData, err error) {
 	var quotaDatas []*QuotaData
 	err = DB.Table("quota_data").
-		Select("username, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used").
+		Select("username, created_at, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used, sum(cache_read_tokens) as cache_read_tokens, sum(cache_creation_tokens) as cache_creation_tokens").
 		Where("created_at >= ? and created_at <= ?", startTime, endTime).
 		Group("username, created_at").
 		Find(&quotaDatas).Error
@@ -205,6 +207,6 @@ func GetAllQuotaDates(startTime int64, endTime int64, username string, models []
 	// 从quota_data表中查询数据
 	// only select model_name, sum(count) as count, sum(quota) as quota, model_name, created_at from quota_data group by model_name, created_at;
 	//err = DB.Table("quota_data").Where("created_at >= ? and created_at <= ?", startTime, endTime).Find(&quotaDatas).Error
-	err = withQuotaModelFilter(DB.Table("quota_data").Select("model_name, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used, created_at").Where("created_at >= ? and created_at <= ?", startTime, endTime).Group("model_name, created_at"), models).Find(&quotaDatas).Error
+	err = withQuotaModelFilter(DB.Table("quota_data").Select("model_name, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used, sum(cache_read_tokens) as cache_read_tokens, sum(cache_creation_tokens) as cache_creation_tokens, created_at").Where("created_at >= ? and created_at <= ?", startTime, endTime).Group("model_name, created_at"), models).Find(&quotaDatas).Error
 	return quotaDatas, err
 }
