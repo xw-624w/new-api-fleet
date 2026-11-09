@@ -40,6 +40,8 @@ export async function getUserQuotaDates(
     end_timestamp: number
     default_time?: string
     username?: string
+    // Comma-separated model names; omitted when every model is included.
+    model_names?: string
   },
   isAdmin = false
 ) {
@@ -48,6 +50,23 @@ export async function getUserQuotaDates(
     endpoint,
     { params }
   )
+  return res.data
+}
+
+// Distinct models that produced usage inside the range, used to populate the
+// dashboard model picker so it only offers models with real data.
+export async function getQuotaModelNames(
+  params: {
+    start_timestamp: number
+    end_timestamp: number
+    username?: string
+  },
+  isAdmin = false
+) {
+  const endpoint = isAdmin ? '/api/data/models' : '/api/data/self/models'
+  const res = await api.get<{ success: boolean; data: string[] }>(endpoint, {
+    params,
+  })
   return res.data
 }
 

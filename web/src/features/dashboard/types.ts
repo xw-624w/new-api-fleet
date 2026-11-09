@@ -189,9 +189,17 @@ export interface DashboardFilters {
   end_timestamp?: Date
   time_granularity?: TimeGranularity
   username?: string
+  // Restricts the model analytics view to these models. An empty or missing
+  // list means "every model", which is the historical behaviour.
+  model_names?: string[]
 }
 
 export type ConsumptionDistributionChartType = 'bar' | 'area'
+
+// Which quantity the consumption distribution chart plots.
+//   quota  -> internal quota units, rendered through the site currency settings
+//   tokens -> real token usage (quota_data.token_used), rendered as a plain count
+export type ConsumptionDistributionMetric = 'quota' | 'tokens'
 
 export type ModelAnalyticsChartTab = 'trend' | 'proportion' | 'top'
 

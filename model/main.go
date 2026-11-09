@@ -359,6 +359,7 @@ func migrateDB() error {
 		&TwoFA{},
 		&TwoFABackupCode{},
 		&Checkin{},
+		&MessageWall{},
 		&SubscriptionOrder{},
 		&UserSubscription{},
 		&SubscriptionPreConsumeRecord{},
@@ -370,6 +371,17 @@ func migrateDB() error {
 		&SystemTaskLock{},
 		&CasbinRule{},
 		&AuthzRole{},
+		// 算力服务
+		&FleetAgent{},
+		&FleetHost{},
+		&FleetHostMeta{},
+		&FleetMetaHistory{},
+		&FleetGpu{},
+		&FleetApp{},
+		&FleetAppAlias{},
+		&FleetHostSample{},
+		&FleetGpuSample{},
+		&FleetAppSample{},
 	)
 	if err != nil {
 		return err

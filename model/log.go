@@ -77,7 +77,9 @@ type Log struct {
 	Ip                string `json:"ip" gorm:"index;default:''"`
 	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
-	Other             string `json:"other"`
+	// NodeName 处理该请求的部署节点（NODE_NAME 或主机名），用于"按服务器"统计与下钻
+	NodeName string `json:"node_name,omitempty" gorm:"index;size:64;default:''"`
+	Other    string `json:"other"`
 }
 
 // don't use iota, avoid change log type value
@@ -313,6 +315,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		}(),
 		RequestId:         requestId,
 		UpstreamRequestId: upstreamRequestId,
+		NodeName:          common.NodeName,
 		Other:             otherStr,
 	}
 	err := createLog(log)
@@ -377,6 +380,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		}(),
 		RequestId:         requestId,
 		UpstreamRequestId: upstreamRequestId,
+		NodeName:          common.NodeName,
 		Other:             otherStr,
 	}
 	err := createLog(log)
@@ -461,7 +465,7 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string, nodeName string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB
@@ -492,6 +496,9 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	}
 	if channel != 0 {
 		tx = tx.Where("logs.channel_id = ?", channel)
+	}
+	if nodeName != "" {
+		tx = tx.Where("logs.node_name = ?", nodeName)
 	}
 	if group != "" {
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)

@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { Eye, EyeOff } from 'lucide-react'
-import { useState, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -113,6 +113,12 @@ const LazyFlowCharts = lazy(() =>
   }))
 )
 
+const LazyServerFleet = lazy(() =>
+  import('./components/servers/server-fleet').then((m) => ({
+    default: m.ServerFleet,
+  }))
+)
+
 function LogStatCardsFallback() {
   return (
     <div className='overflow-hidden rounded-lg border'>
@@ -189,6 +195,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   users: {
     titleKey: 'User Analytics',
   },
+  servers: {
+    titleKey: 'Server Fleet',
+  },
 }
 
 export function Dashboard() {
@@ -198,6 +207,17 @@ export function Dashboard() {
   const userRole = useAuthStore((state) => state.auth.user?.role)
   const activeSection = (params.section ??
     DASHBOARD_DEFAULT_SECTION) as DashboardSectionId
+
+  // 旧书签兜底：/dashboard/compute 已下线，物理算力统一在「服务器算力」
+  useEffect(() => {
+    if (params.section === 'compute') {
+      void navigate({
+        to: '/dashboard/$section',
+        params: { section: 'servers' },
+        replace: true,
+      })
+    }
+  }, [params.section, navigate])
 
   const [modelData, setModelData] = useState<QuotaDataItem[]>([])
   const [dataLoading, setDataLoading] = useState(false)
@@ -248,7 +268,8 @@ export function Dashboard() {
   const visibleSections = useMemo(
     () =>
       DASHBOARD_SECTION_IDS.filter(
-        (section) => section !== 'overview' && (section !== 'users' || isAdmin)
+        (section) =>
+          section !== 'overview' && (section !== 'users' || isAdmin)
       ),
     [isAdmin]
   )
@@ -312,6 +333,7 @@ export function Dashboard() {
           onReset={handleResetFilters}
           titleKey='Flow Filters'
           descriptionKey='Filter the traffic flow view by time range and user.'
+          showModelFilter={false}
         />
       </>
     ) : null
@@ -401,11 +423,21 @@ export function Dashboard() {
               </Suspense>
             </FadeIn>
           )}
+          {activeSection === 'servers' && (
+            <FadeIn>
+              <Suspense fallback={<ModelChartsFallback />}>
+                <LazyServerFleet />
+              </Suspense>
+            </FadeIn>
+          )}
           {activeSection === 'flow' && (
             <FadeIn>
               <Suspense fallback={<ModelChartsFallback />}>
                 <LazyFlowCharts
-                  filters={modelFilters}
+                  // The model picker belongs to the model analytics section, so
+                  // the flow view never receives that filter even when the shared
+                  // dialog left a selection behind.
+                  filters={{ ...modelFilters, model_names: undefined }}
                   sensitiveVisible={flowSensitiveVisible}
                 />
               </Suspense>

@@ -34,6 +34,11 @@ func SetApiRouter(router *gin.Engine) {
 		//apiRouter.GET("/midjourney", controller.GetMidjourney)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
+		// 模型广场留言墙：与模型广场共用导航模块开关（模块关闭时一并隐藏）。
+		// 列表所有人可看，发布需登录，删除限作者本人或管理员。
+		apiRouter.GET("/message-wall", middleware.HeaderNavModuleAuth("pricing"), controller.GetMessageWall)
+		apiRouter.POST("/message-wall", middleware.UserAuth(), middleware.UserCriticalRateLimit("message-wall"), controller.AddMessageWall)
+		apiRouter.DELETE("/message-wall/:id", middleware.UserAuth(), controller.DeleteMessageWall)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")
 		perfMetricsRoute.Use(middleware.HeaderNavModulePublicOrUserAuth("pricing"))
 		{
@@ -340,8 +345,34 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/", middleware.AdminAuth(), controller.GetAllQuotaDates)
 		dataRoute.GET("/users", middleware.AdminAuth(), controller.GetQuotaDatesByUser)
 		dataRoute.GET("/self", middleware.UserAuth(), controller.GetUserQuotaDates)
+		// 数据看板「按模型查看」：可筛选的模型列表（管理员 / 普通用户各自作用域）
+		dataRoute.GET("/models", middleware.AdminAuth(), controller.GetAllQuotaModelNames)
+		dataRoute.GET("/self/models", middleware.UserAuth(), controller.GetUserQuotaModelNames)
 		dataRoute.GET("/flow", middleware.AdminAuth(), controller.GetAllFlowQuotaDates)
 		dataRoute.GET("/flow/self", middleware.UserAuth(), controller.GetUserFlowQuotaDates)
+		// 算力使用分析：按服务器（部署节点 / 上游渠道）汇总 + 并发曲线
+		dataRoute.GET("/analytics/servers", middleware.AdminAuth(), controller.GetComputeServerUsage)
+		dataRoute.GET("/analytics/concurrency", middleware.AdminAuth(), controller.GetComputeConcurrency)
+
+		// 算力服务（fleet）：采集上报 + 机器/加速卡/应用查询 + 人工台账
+		fleetRoute := apiRouter.Group("/fleet")
+		fleetRoute.POST("/ingest", controller.FleetIngest)
+		fleetRoute.GET("/agent/install.sh", controller.FleetAgentInstall)
+		fleetRoute.GET("/agent/bin", controller.FleetAgentBinary)
+		fleetRoute.GET("/agent/version", controller.FleetAgentVersion)
+		fleetRoute.GET("/summary", middleware.AdminAuth(), controller.FleetSummary)
+		fleetRoute.GET("/hosts", middleware.AdminAuth(), controller.FleetHosts)
+		fleetRoute.GET("/hosts/:id", middleware.AdminAuth(), controller.FleetHostDetail)
+		fleetRoute.PUT("/hosts/:id/meta", middleware.AdminAuth(), controller.FleetUpdateMeta)
+		fleetRoute.GET("/hosts/:id/meta/history", middleware.AdminAuth(), controller.FleetMetaHistory)
+		fleetRoute.POST("/hosts/:id/meta/rollback", middleware.AdminAuth(), controller.FleetMetaRollback)
+		fleetRoute.GET("/series", middleware.AdminAuth(), controller.FleetSeries)
+		fleetRoute.GET("/apps", middleware.AdminAuth(), controller.FleetApps)
+		fleetRoute.POST("/meta/import", middleware.AdminAuth(), controller.FleetImportMeta)
+		fleetRoute.POST("/agents", middleware.AdminAuth(), controller.FleetCreateAgent)
+		fleetRoute.GET("/app-aliases", middleware.AdminAuth(), controller.FleetAppAliases)
+		fleetRoute.PUT("/app-aliases", middleware.AdminAuth(), controller.FleetUpsertAppAlias)
+		fleetRoute.DELETE("/app-aliases", middleware.AdminAuth(), controller.FleetDeleteAppAlias)
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{

@@ -17,11 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Filter, RotateCcw, Calendar, Search } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { DateTimePicker } from '@/components/datetime-picker'
 import { Dialog } from '@/components/dialog'
+import { MultiSelect } from '@/components/multi-select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { getQuotaModelNames } from '@/features/dashboard/api'
 import {
   TIME_GRANULARITY_OPTIONS,
   TIME_RANGE_PRESETS,
@@ -41,12 +43,17 @@ import {
 import {
   buildDefaultDashboardFilters,
   cleanFilters,
+  getDefaultDays,
 } from '@/features/dashboard/lib'
 import type {
   DashboardChartPreferences,
   DashboardFilters,
 } from '@/features/dashboard/types'
-import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
+import {
+  computeTimeRange,
+  getRollingDateRange,
+  type TimeGranularity,
+} from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -59,6 +66,9 @@ interface ModelsFilterProps {
   onReset: () => void
   titleKey?: string
   descriptionKey?: string
+  // The model picker only makes sense for the model analytics section; other
+  // sections reuse this dialog for its time range without offering models.
+  showModelFilter?: boolean
 }
 
 // Quick-range presets imply a sensible granularity (matching the app's
@@ -110,6 +120,41 @@ export function ModelsFilter(props: ModelsFilterProps) {
   const [selectedRange, setSelectedRange] = useState<number | null>(() =>
     detectQuickRangeDays(props.currentFilters)
   )
+  const [modelOptions, setModelOptions] = useState<string[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const showModelFilter = props.showModelFilter !== false
+
+  // Model options follow the range being edited, so the picker only offers
+  // models that actually produced usage inside the window the user is looking
+  // at instead of a stale or site-wide list.
+  useEffect(() => {
+    if (!open || !showModelFilter) return
+
+    const timeRange = computeTimeRange(
+      getDefaultDays(filters.time_granularity),
+      filters.start_timestamp,
+      filters.end_timestamp
+    )
+    let cancelled = false
+    setModelsLoading(true)
+
+    void getQuotaModelNames(timeRange, Boolean(isAdmin))
+      .then((res) => {
+        if (cancelled) return
+        setModelOptions(Array.isArray(res?.data) ? res.data : [])
+      })
+      .catch(() => {
+        if (!cancelled) setModelOptions([])
+      })
+      .finally(() => {
+        if (!cancelled) setModelsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, showModelFilter, isAdmin, filters.start_timestamp, filters.end_timestamp, filters.time_granularity])
 
   const handleOpenChange = (nextOpen: boolean) => {
     // Sync the editing state from the applied filters every time the dialog
@@ -124,10 +169,22 @@ export function ModelsFilter(props: ModelsFilterProps) {
   }
 
   const handleApply = () => {
+    // Drop an empty model selection entirely so "no filter" and "filter on
+    // nothing" cannot diverge, and an empty list never reaches the API.
+    const models = (filters.model_names ?? []).filter(
+      (name) => name.trim() !== ''
+    )
+    const applied: DashboardFilters = { ...filters }
+    if (models.length > 0) {
+      applied.model_names = models
+    } else {
+      delete applied.model_names
+    }
+
     props.onFilterChange(
       cleanFilters(
-        filters as unknown as Record<string, unknown>
-      ) as typeof filters
+        applied as unknown as Record<string, unknown>
+      ) as typeof applied
     )
     setOpen(false)
   }
@@ -197,7 +254,7 @@ export function ModelsFilter(props: ModelsFilterProps) {
         </>
       }
     >
-      <ScrollArea className='h-full pr-3 sm:pr-4'>
+      <ScrollArea className='h-full max-h-[52vh] pr-3 sm:pr-4'>
         <div className='grid gap-2.5 py-2'>
           {/* Quick time range selection */}
           <div className='grid gap-2'>
@@ -224,6 +281,39 @@ export function ModelsFilter(props: ModelsFilterProps) {
               ))}
             </div>
           </div>
+
+          {/* Model scope — only the model analytics section offers this, and it
+              stays above the custom range so the picker is visible without
+              scrolling a short dialog. */}
+          {showModelFilter && (
+            <>
+              <SectionDivider label={t('Model')} />
+
+              <div className='grid gap-2'>
+                <Label htmlFor='model_names'>{t('Models')}</Label>
+                <MultiSelect
+                  id='model_names'
+                  options={modelOptions.map((name) => ({
+                    label: name,
+                    value: name,
+                  }))}
+                  selected={filters.model_names ?? []}
+                  onChange={(values) =>
+                    setFilters((prev) => ({ ...prev, model_names: values }))
+                  }
+                  placeholder={
+                    modelsLoading ? t('Loading models...') : t('All models')
+                  }
+                  emptyText={t('No models with data in this range')}
+                  maxVisibleChips={3}
+                  disabled={modelsLoading}
+                />
+                <p className='text-muted-foreground text-xs'>
+                  {t('Leave empty to include every model.')}
+                </p>
+              </div>
+            </>
+          )}
 
           <SectionDivider label={t('Custom Time Range')} />
 

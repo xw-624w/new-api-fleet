@@ -24,13 +24,27 @@ import {
   DASHBOARD_DEFAULT_SECTION,
 } from '@/features/dashboard/section-registry'
 
+// 已下线的分区：旧书签落到新的对应页面，而不是掉回概览
+const LEGACY_SECTION_ALIASES: Record<string, string> = {
+  compute: 'servers',
+}
+
 export const Route = createFileRoute('/_authenticated/dashboard/$section')({
   beforeLoad: ({ params }) => {
     const validSections = DASHBOARD_SECTION_IDS as unknown as string[]
-    if (!validSections.includes(params.section)) {
+    const target = LEGACY_SECTION_ALIASES[params.section] ?? params.section
+
+    if (!validSections.includes(target)) {
       throw redirect({
         to: '/dashboard/$section',
         params: { section: DASHBOARD_DEFAULT_SECTION },
+      })
+    }
+    if (target !== params.section) {
+      throw redirect({
+        to: '/dashboard/$section',
+        params: { section: target },
+        replace: true,
       })
     }
   },

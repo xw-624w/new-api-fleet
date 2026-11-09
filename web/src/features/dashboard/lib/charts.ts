@@ -23,6 +23,7 @@ import type {
   QuotaDataItem,
   ProcessedChartData,
   ProcessedUserChartData,
+  ConsumptionDistributionMetric,
 } from '@/features/dashboard/types'
 import { getCurrencyDisplay } from '@/lib/currency'
 import { formatChartTime, type TimeGranularity } from '@/lib/time'
@@ -71,7 +72,8 @@ export function processChartData(
   data: QuotaDataItem[],
   timeGranularity: TimeGranularity = 'day',
   t?: TFunction,
-  chartCornerRadius?: number
+  chartCornerRadius?: number,
+  metric: ConsumptionDistributionMetric = 'quota'
 ): ProcessedChartData {
   const tt: TFunction = t ?? ((x) => x)
   const otherLabel = tt('Other')
@@ -80,6 +82,10 @@ export function processChartData(
     Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
   const formatQuotaValue = (value: number) => renderQuotaCompat(value, 4)
   const formatQuotaTotal = (value: number) => renderQuotaCompat(value, 2)
+  // Real token usage is a plain count; quota goes through the site currency
+  // settings. Everything user-visible follows the selected metric.
+  const isTokenMetric = metric === 'tokens'
+  const formatUsageValue = isTokenMetric ? formatInt : formatQuotaValue
 
   const MAX_TOOLTIP_MODELS = 15
   const isOtherTooltipKey = (key: string) =>
@@ -106,7 +112,7 @@ export function processChartData(
           sum =
             Number((array[i].datum as Record<string, unknown>)?.TimeSum) || sum
         }
-        array[i].value = formatQuotaValue(v)
+        array[i].value = formatUsageValue(v)
       }
 
       if (collapseOverflow && array.length > MAX_TOOLTIP_MODELS) {
@@ -124,7 +130,7 @@ export function processChartData(
           ...visible,
           {
             key: otherLabel,
-            value: formatQuotaValue(otherSum),
+            value: formatUsageValue(otherSum),
             hasShape: true,
             shapeType: 'square',
             shapeFill: otherTooltipColor,
@@ -136,7 +142,7 @@ export function processChartData(
 
       array.unshift({
         key: tt('Total:'),
-        value: formatQuotaValue(sum),
+        value: formatUsageValue(sum),
       })
       return array
     }
@@ -207,7 +213,7 @@ export function processChartData(
           text: tt('Call Count Ranking'),
         },
       },
-      totalQuotaDisplay: formatQuotaTotal(0),
+      totalQuotaDisplay: isTokenMetric ? formatInt(0) : formatQuotaTotal(0),
       totalCountDisplay: formatInt(0),
     }
   }
@@ -291,7 +297,12 @@ export function processChartData(
         timeGranularity
       )
     )
-    return padded
+    // Padding exists to extend the axis so a sparse range still renders a
+    // readable chart. It must never act as a filter: the axis is the union of
+    // the padded points and every bucket that actually holds data. Returning
+    // `padded` alone silently dropped all data older than the last
+    // MAX_TREND_POINTS intervals (7 hours / 7 days / 7 weeks).
+    return Array.from(new Set([...padded, ...times])).sort()
   }
   const chartTimes = fillTimePoints(sortedTimes)
 
@@ -301,6 +312,10 @@ export function processChartData(
   )
   const totalQuotaRaw = Array.from(modelTotalsMap.values()).reduce(
     (sum, x) => sum + (Number(x.quota) || 0),
+    0
+  )
+  const totalTokensRaw = Array.from(modelTotalsMap.values()).reduce(
+    (sum, x) => sum + (Number(x.tokens) || 0),
     0
   )
 
@@ -324,10 +339,18 @@ export function processChartData(
   chartTimes.forEach((time) => {
     let timeData = sortedModels.map((model) => {
       const stats = timeModelMap.get(time)?.get(model)
-      const rawQuota = Number(stats?.quota) || 0
+      // rawQuota holds the raw value of the SELECTED metric, so the tooltips,
+      // sorting and TimeSum below stay metric-agnostic.
+      const rawQuota = isTokenMetric
+        ? Number(stats?.tokens) || 0
+        : Number(stats?.quota) || 0
       const usd = rawQuota ? rawQuota / quotaPerUnit : 0
       // Match legacy frontend getQuotaWithUnit(..., 4)
-      const usage = usd ? Number(usd.toFixed(4)) : 0
+      const usage = isTokenMetric
+        ? rawQuota
+        : usd
+          ? Number(usd.toFixed(4))
+          : 0
       return {
         Time: time,
         Model: model,
@@ -349,7 +372,9 @@ export function processChartData(
   const rankedQuotaModels = Array.from(modelTotalsMap.entries())
     .map(([model, stats]) => ({
       Model: model,
-      Quota: Number(stats.quota) || 0,
+      Quota: isTokenMetric
+        ? Number(stats.tokens) || 0
+        : Number(stats.quota) || 0,
     }))
     .sort((a, b) => b.Quota - a.Quota)
   const topAreaModels = new Set(
@@ -363,9 +388,15 @@ export function processChartData(
     let timeSum = 0
     sortedModels.forEach((model) => {
       const stats = modelMap?.get(model)
-      const rawQuota = Number(stats?.quota) || 0
+      const rawQuota = isTokenMetric
+        ? Number(stats?.tokens) || 0
+        : Number(stats?.quota) || 0
       const usd = rawQuota ? rawQuota / quotaPerUnit : 0
-      const usage = usd ? Number(usd.toFixed(4)) : 0
+      const usage = isTokenMetric
+        ? rawQuota
+        : usd
+          ? Number(usd.toFixed(4))
+          : 0
       timeSum += rawQuota
       const key = topAreaModels.has(model) ? model : otherLabel
       const prev = buckets.get(key) || { rawQuota: 0, usage: 0 }
@@ -508,7 +539,7 @@ export function processChartData(
             {
               key: (datum: Record<string, unknown>) => datum?.Model,
               value: (datum: Record<string, unknown>) =>
-                formatQuotaValue(Number(datum?.rawQuota) || 0),
+                formatUsageValue(Number(datum?.rawQuota) || 0),
             },
           ],
         },
@@ -541,7 +572,7 @@ export function processChartData(
             {
               key: (datum: Record<string, unknown>) => datum?.Model,
               value: (datum: Record<string, unknown>) =>
-                formatQuotaValue(Number(datum?.rawQuota) || 0),
+                formatUsageValue(Number(datum?.rawQuota) || 0),
             },
           ],
         },
@@ -683,7 +714,9 @@ export function processChartData(
       background: { fill: 'transparent' },
       animation: true,
     },
-    totalQuotaDisplay: formatQuotaTotal(totalQuotaRaw),
+    totalQuotaDisplay: isTokenMetric
+      ? formatInt(totalTokensRaw)
+      : formatQuotaTotal(totalQuotaRaw),
     totalCountDisplay: formatInt(totalTimes),
   }
 }

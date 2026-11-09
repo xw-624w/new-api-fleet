@@ -45,11 +45,18 @@ const DASHBOARD_SECTIONS = [
     adminOnly: true,
     build: () => null,
   },
+  {
+    // 物理口径：机器、显卡、部署应用
+    id: 'servers',
+    titleKey: 'Server Fleet',
+    adminOnly: true,
+    build: () => null,
+  },
 ] as const
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]['id']
 
-const ADMIN_ONLY_SECTIONS = new Set<string>(['users'])
+const ADMIN_ONLY_SECTIONS = new Set<string>(['users', 'servers'])
 
 const dashboardRegistry = createSectionRegistry<
   DashboardSectionId,

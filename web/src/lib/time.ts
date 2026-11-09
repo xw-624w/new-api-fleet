@@ -154,6 +154,20 @@ export function formatDateTimeObject(date: Date): string {
 }
 
 /**
+ * Start of the calendar week (Monday 00:00) that contains `date`.
+ *
+ * Alignment matters because chart buckets are keyed by this function's output:
+ * every timestamp inside the same week must produce the same key. Deriving the
+ * range from the row's own date instead ("10-07 - 10-13") splits one week into
+ * several keys, and the padded axis then only keeps a few of them, silently
+ * dropping data. Monday-based and locale independent on purpose.
+ */
+function startOfWeekMonday(date: dayjs.Dayjs): dayjs.Dayjs {
+  const daysSinceMonday = (date.day() + 6) % 7
+  return date.subtract(daysSinceMonday, 'day').startOf('day')
+}
+
+/**
  * Format timestamp for chart display based on time granularity
  * @param timestamp Unix timestamp in seconds
  * @param granularity Time granularity: 'hour', 'day', or 'week'
@@ -169,8 +183,9 @@ export function formatChartTime(
   if (granularity === 'hour') {
     result += ` ${d.format('HH')}:00`
   } else if (granularity === 'week') {
-    const weekEnd = d.add(6, 'day')
-    result += ` - ${weekEnd.format('MM-DD')}`
+    const weekStart = startOfWeekMonday(d)
+    const weekEnd = weekStart.add(6, 'day')
+    result = `${weekStart.format('MM-DD')} - ${weekEnd.format('MM-DD')}`
   }
 
   return result

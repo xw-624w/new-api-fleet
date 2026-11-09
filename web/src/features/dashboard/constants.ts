@@ -55,6 +55,12 @@ export const CONSUMPTION_DISTRIBUTION_CHART_OPTIONS = [
   { value: 'area', labelKey: 'Area Chart' },
 ] as const
 
+// Unit switch for the consumption distribution chart: money vs real token count.
+export const CONSUMPTION_DISTRIBUTION_METRIC_OPTIONS = [
+  { value: 'quota', labelKey: 'Quota' },
+  { value: 'tokens', labelKey: 'Tokens' },
+] as const
+
 export const MODEL_ANALYTICS_CHART_OPTIONS = [
   { value: 'trend', labelKey: 'Call Trend' },
   { value: 'proportion', labelKey: 'Call Count Distribution' },

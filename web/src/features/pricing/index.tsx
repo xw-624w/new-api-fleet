@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
+import { MessageWall } from '@/features/message-wall'
 
 import {
   LoadingSkeleton,
@@ -259,6 +260,8 @@ export function Pricing() {
               {renderPricingContent()}
             </main>
           </div>
+
+          <MessageWall />
 
           {selectedModel && (
             <ModelDetailsDrawer

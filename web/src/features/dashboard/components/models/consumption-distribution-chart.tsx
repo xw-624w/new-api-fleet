@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { VChart } from '@visactor/react-vchart'
-import { AreaChart, BarChart3, WalletCards } from 'lucide-react'
+import { AreaChart, BarChart3, Coins, Hash, WalletCards } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -26,11 +26,13 @@ import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { useTheme } from '@/context/theme-provider'
 import {
   CONSUMPTION_DISTRIBUTION_CHART_OPTIONS,
+  CONSUMPTION_DISTRIBUTION_METRIC_OPTIONS,
   DEFAULT_TIME_GRANULARITY,
 } from '@/features/dashboard/constants'
 import { processChartData } from '@/features/dashboard/lib'
 import type {
   ConsumptionDistributionChartType,
+  ConsumptionDistributionMetric,
   QuotaDataItem,
 } from '@/features/dashboard/types'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
@@ -56,6 +58,11 @@ const CHART_TYPE_ICONS: Record<
   area: AreaChart,
 }
 
+const METRIC_ICONS: Record<ConsumptionDistributionMetric, typeof BarChart3> = {
+  quota: Coins,
+  tokens: Hash,
+}
+
 export function ConsumptionDistributionChart(
   props: ConsumptionDistributionChartProps
 ) {
@@ -69,6 +76,8 @@ export function ConsumptionDistributionChart(
   const [chartType, setChartType] = useState<ConsumptionDistributionChartType>(
     props.defaultChartType ?? 'bar'
   )
+  // Unit of the plotted values: money (quota) or real token usage.
+  const [metric, setMetric] = useState<ConsumptionDistributionMetric>('quota')
   const [themeReady, setThemeReady] = useState(false)
   const themeManagerRef = useRef<
     (typeof import('@visactor/vchart'))['ThemeManager'] | null
@@ -104,14 +113,16 @@ export function ConsumptionDistributionChart(
         props.loading ? [] : props.data,
         timeGranularity,
         t,
-        chartRadius
+        chartRadius,
+        metric
       ),
-    [props.data, props.loading, timeGranularity, t, chartRadius]
+    [props.data, props.loading, timeGranularity, t, chartRadius, metric]
   )
   const spec = chartType === 'bar' ? chartData.spec_line : chartData.spec_area
   const specType = typeof spec?.type === 'string' ? spec.type : chartType
   const chartKey = [
     chartType,
+    metric,
     specType,
     props.loading ? 'loading' : 'ready',
     props.data.length,
@@ -132,25 +143,48 @@ export function ConsumptionDistributionChart(
           </span>
         </div>
 
-        <div className='bg-muted/60 inline-flex h-7 w-full overflow-x-auto rounded-lg border p-0.5 sm:h-8 sm:w-auto'>
-          {CONSUMPTION_DISTRIBUTION_CHART_OPTIONS.map((item) => {
-            const Icon = CHART_TYPE_ICONS[item.value]
-            return (
-              <button
-                key={item.value}
-                type='button'
-                onClick={() => setChartType(item.value)}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors ${
-                  chartType === item.value
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Icon className='size-3.5' />
-                {t(item.labelKey)}
-              </button>
-            )
-          })}
+        <div className='flex w-full flex-wrap items-center gap-2 sm:w-auto'>
+          <div className='bg-muted/60 inline-flex h-7 overflow-x-auto rounded-lg border p-0.5 sm:h-8'>
+            {CONSUMPTION_DISTRIBUTION_METRIC_OPTIONS.map((item) => {
+              const Icon = METRIC_ICONS[item.value]
+              return (
+                <button
+                  key={item.value}
+                  type='button'
+                  onClick={() => setMetric(item.value)}
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors ${
+                    metric === item.value
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Icon className='size-3.5' />
+                  {t(item.labelKey)}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className='bg-muted/60 inline-flex h-7 overflow-x-auto rounded-lg border p-0.5 sm:h-8'>
+            {CONSUMPTION_DISTRIBUTION_CHART_OPTIONS.map((item) => {
+              const Icon = CHART_TYPE_ICONS[item.value]
+              return (
+                <button
+                  key={item.value}
+                  type='button'
+                  onClick={() => setChartType(item.value)}
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors ${
+                    chartType === item.value
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Icon className='size-3.5' />
+                  {t(item.labelKey)}
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 

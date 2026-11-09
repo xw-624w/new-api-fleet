@@ -154,16 +154,26 @@ export function buildDefaultDashboardFilters(
 
 export function buildQueryParams(
   timeRange: { start_timestamp: number; end_timestamp: number },
-  filters?: { time_granularity?: TimeGranularity; username?: string }
+  filters?: {
+    time_granularity?: TimeGranularity
+    username?: string
+    model_names?: string[]
+  }
 ): {
   start_timestamp: number
   end_timestamp: number
   default_time: string
   username?: string
+  model_names?: string
 } {
+  // The API takes a comma-separated list; an empty selection means "all models"
+  // and is omitted entirely so the query stays identical to the old behaviour.
+  const models = filters?.model_names?.filter((name) => name.trim() !== '') ?? []
+
   return {
     ...timeRange,
     default_time: getSavedGranularity(filters?.time_granularity),
     ...(filters?.username && { username: filters.username }),
+    ...(models.length > 0 && { model_names: models.join(',') }),
   }
 }
