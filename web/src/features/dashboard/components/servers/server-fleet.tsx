@@ -24,9 +24,11 @@ import {
   Cpu,
   Gauge,
   History,
+  Layers,
   MemoryStick,
   PencilLine,
   Server,
+  Shield,
   Thermometer,
   Zap,
 } from 'lucide-react'
@@ -276,6 +278,34 @@ export function ServerFleet() {
           }
         />
       </div>
+
+      {/* 算力区分：专属 / 弹性 / 未分配 */}
+      {s?.pools ? (
+        <div className='grid grid-cols-3 gap-3'>
+          <StatTile
+            icon={Shield}
+            label='专属卡'
+            value={String(s.pools.dedicated?.cards ?? 0)}
+            hint={`${s.pools.dedicated?.in_use ?? 0} 在用 · ${(
+              s.pools.dedicated?.gpu_hours ?? 0
+            ).toFixed(1)} 卡时 · ${s.pools.dedicated?.projects ?? 0} 个项目`}
+          />
+          <StatTile
+            icon={Zap}
+            label='弹性卡'
+            value={String(s.pools.shared?.cards ?? 0)}
+            hint={`${s.pools.shared?.in_use ?? 0} 在用 · ${(
+              s.pools.shared?.gpu_hours ?? 0
+            ).toFixed(1)} 卡时 · ${s.pools.shared?.idle ?? 0} 张空闲`}
+          />
+          <StatTile
+            icon={Layers}
+            label='未分配'
+            value={String(s.pools.unassigned?.cards ?? 0)}
+            hint='未打标的卡，不计入弹性池'
+          />
+        </div>
+      ) : null}
 
       {empty ? (
         <Card>
@@ -734,6 +764,26 @@ function HostDetailCard({
               <div className='text-muted-foreground/70 truncate text-[9px]'>
                 {g.model}
               </div>
+              {g.pool ? (
+                <div className='mt-0.5 truncate text-[9px]'>
+                  <span
+                    className={cn(
+                      'rounded px-1 py-px',
+                      g.pool === 'dedicated'
+                        ? 'bg-sky-500/12 text-sky-600'
+                        : g.pool === 'shared'
+                          ? 'bg-emerald-500/12 text-emerald-600'
+                          : 'bg-amber-500/12 text-amber-600'
+                    )}
+                  >
+                    {g.pool === 'dedicated'
+                      ? `专属·${g.project || '未填项目'}`
+                      : g.pool === 'shared'
+                        ? '弹性'
+                        : '未分配'}
+                  </span>
+                </div>
+              ) : null}
               <div className='mt-1 text-sm font-semibold tabular-nums'>
                 {Math.round(g.util)}%
               </div>

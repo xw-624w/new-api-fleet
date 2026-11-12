@@ -382,6 +382,8 @@ func migrateDB() error {
 		&FleetGpu{},
 		&FleetApp{},
 		&FleetAppAlias{},
+		&FleetGpuPool{},
+		&FleetGpuPoolHistory{},
 		&FleetHostSample{},
 		&FleetGpuSample{},
 		&FleetAppSample{},

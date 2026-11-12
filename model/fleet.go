@@ -149,6 +149,11 @@ type FleetGpu struct {
 	Power     float64 `json:"power" gorm:"default:0"`
 	LastTs    int64   `json:"last_ts" gorm:"bigint;default:0"`
 	FirstSeen int64   `json:"first_seen" gorm:"bigint;default:0"`
+
+	// 归属（来自 fleet_gpu_pools，查询时填充，不落库）
+	Pool    string `json:"pool" gorm:"-"`
+	Project string `json:"project" gorm:"-"`
+	Team    string `json:"team" gorm:"-"`
 }
 
 func (FleetGpu) TableName() string { return "fleet_gpus" }
@@ -711,6 +716,8 @@ type FleetSummary struct {
 	CoveredHoursToday float64 `json:"covered_hours_today"`
 	LastIngestAt      int64   `json:"last_ingest_at"`
 	Degraded          bool    `json:"degraded"`
+	// 分池统计（卡级归属），老前端不认这个字段也不受影响
+	Pools map[string]*FleetPoolStat `json:"pools,omitempty"`
 }
 
 func GetFleetSummary(rangeDays int) (*FleetSummary, error) {
@@ -795,6 +802,9 @@ func GetFleetSummary(rangeDays int) (*FleetSummary, error) {
 	}
 
 	s.Degraded = s.LastIngestAt == 0 || time.Now().Unix()-s.LastIngestAt > fleetOfflineAfterSec
+	if pools, _, err := GetFleetPoolStats(rangeDays); err == nil {
+		s.Pools = pools
+	}
 	return &s, nil
 }
 
@@ -817,6 +827,14 @@ func FleetHostDetail(hostId int) (map[string]any, error) {
 	}
 	var gpus []FleetGpu
 	DB.Where("host_id = ?", hostId).Order("vendor ASC, gpu_index ASC").Find(&gpus)
+	// 带上归属，单机详情里直接逐卡打标
+	poolMap := loadFleetPoolMap()
+	for i := range gpus {
+		p := fleetPoolOf(poolMap, gpus[i].HostId, gpus[i].GpuIndex)
+		gpus[i].Pool = p.Pool
+		gpus[i].Project = p.Project
+		gpus[i].Team = p.Team
+	}
 	var apps []FleetApp
 	DB.Where("host_id = ?", hostId).Order("gpu_util DESC").Find(&apps)
 	AttachAppAliases(apps)

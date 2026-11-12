@@ -386,6 +386,17 @@ func SetApiRouter(router *gin.Engine) {
 		fleetRoute.PUT("/app-aliases", middleware.AdminAuth(), controller.FleetUpsertAppAlias)
 		fleetRoute.DELETE("/app-aliases", middleware.AdminAuth(), controller.FleetDeleteAppAlias)
 
+		// 算力区分：卡级归属（专属 / 弹性 / 未分配）+ 分账
+		fleetRoute.GET("/pools", middleware.AdminAuth(), controller.FleetPools)
+		fleetRoute.GET("/pools/cards", middleware.AdminAuth(), controller.FleetPoolCards)
+		fleetRoute.GET("/pools/billing", middleware.AdminAuth(), controller.FleetBilling)
+		fleetRoute.GET("/pools/projects", middleware.AdminAuth(), controller.FleetProjects)
+		fleetRoute.PUT("/pools/card/:host_id/:gpu_index", middleware.AdminAuth(), controller.FleetSetGpuPool)
+		fleetRoute.POST("/pools/batch", middleware.AdminAuth(), controller.FleetBatchGpuPool)
+		fleetRoute.GET("/pools/card/:host_id/:gpu_index/history", middleware.AdminAuth(), controller.FleetGpuPoolHistory)
+		fleetRoute.POST("/pools/card/:host_id/:gpu_index/rollback", middleware.AdminAuth(), controller.FleetGpuPoolRollback)
+		fleetRoute.GET("/hosts/:id/gpus", middleware.AdminAuth(), controller.FleetHostGpus)
+
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
 			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)

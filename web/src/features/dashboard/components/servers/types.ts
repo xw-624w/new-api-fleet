@@ -30,6 +30,8 @@ export interface FleetSummary {
   covered_hours_today: number
   last_ingest_at: number
   degraded: boolean
+  /** 分池统计（卡级归属），老后端不返回时为空 */
+  pools?: Record<FleetPoolKind, FleetPoolStat>
 }
 
 export interface FleetHostRow {
@@ -67,6 +69,10 @@ export interface FleetGpu {
   mem_used: number
   temp: number
   power: number
+  /** 归属（来自 fleet_gpu_pools） */
+  pool?: FleetPoolKind
+  project?: string
+  team?: string
 }
 
 export interface FleetApp {
@@ -138,4 +144,72 @@ export interface FleetAppRow {
 
 export interface FleetSeriesPoint extends Record<string, number> {
   ts: number
+}
+// ---------------------------------------------------------------------------
+// 算力区分：卡级归属（专属 / 弹性 / 未分配）
+// ---------------------------------------------------------------------------
+
+export type FleetPoolKind = 'dedicated' | 'shared' | 'unassigned'
+
+export interface FleetPoolStat {
+  pool: FleetPoolKind
+  cards: number
+  in_use: number
+  idle: number
+  vram_used: number
+  vram_total: number
+  avg_util: number
+  gpu_hours: number
+  projects: number
+}
+
+export interface FleetPoolProject {
+  pool: FleetPoolKind
+  project: string
+  cards: number
+  gpu_hours: number
+  avg_util: number
+}
+
+export interface FleetPoolOverview {
+  range_days: number
+  pools: Record<FleetPoolKind, FleetPoolStat>
+  projects: FleetPoolProject[]
+}
+
+export interface FleetGpuCard {
+  host_id: number
+  hostname: string
+  gpu_index: number
+  vendor: string
+  model: string
+  mem_total: number
+  util: number
+  mem_used: number
+  temp: number
+  pool: FleetPoolKind
+  project: string
+  team: string
+  note: string
+  updated_at: number
+  updated_by: string
+  host_apps: string[]
+  conflict: boolean
+}
+
+export interface FleetBillingRow {
+  project: string
+  dedicated_cards: number
+  reserved_hours: number
+  effective_hours: number
+  shared_hours: number
+  total_hours: number
+}
+
+export interface FleetBilling {
+  month: string
+  start: number
+  end: number
+  period_hours: number
+  rows: FleetBillingRow[]
 }

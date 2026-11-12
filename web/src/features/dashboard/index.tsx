@@ -121,6 +121,12 @@ const LazyServerFleet = lazy(() =>
   }))
 )
 
+const LazyPoolView = lazy(() =>
+  import('./components/servers/pool-view').then((m) => ({
+    default: m.PoolView,
+  }))
+)
+
 function LogStatCardsFallback() {
   return (
     <div className='overflow-hidden rounded-lg border'>
@@ -202,6 +208,9 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   },
   servers: {
     titleKey: 'Server Fleet',
+  },
+  pools: {
+    titleKey: '算力池',
   },
 }
 
@@ -432,6 +441,13 @@ export function Dashboard() {
             <FadeIn>
               <Suspense fallback={<ModelChartsFallback />}>
                 <LazyServerFleet />
+              </Suspense>
+            </FadeIn>
+          )}
+          {activeSection === 'pools' && (
+            <FadeIn>
+              <Suspense fallback={<ModelChartsFallback />}>
+                <LazyPoolView />
               </Suspense>
             </FadeIn>
           )}

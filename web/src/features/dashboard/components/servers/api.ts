@@ -20,8 +20,11 @@ import { api } from '@/lib/api'
 
 import type {
   FleetAppRow,
+  FleetBilling,
+  FleetGpuCard,
   FleetHostDetail,
   FleetHostRow,
+  FleetPoolOverview,
   FleetSeries,
   FleetSummary,
 } from './types'
@@ -181,4 +184,66 @@ export async function deleteFleetAppAlias(
   await api.delete('/api/fleet/app-aliases', {
     data: { id, match_type: matchType, match_value: matchValue },
   })
+}
+// ---------------------------------------------------------------------------
+// 算力区分：卡级归属 + 分账
+// ---------------------------------------------------------------------------
+
+export async function getFleetPools(rangeDays = 1): Promise<FleetPoolOverview> {
+  const res = await api.get<Envelope<FleetPoolOverview>>('/api/fleet/pools', {
+    params: { range: `${rangeDays}d` },
+  })
+  return res.data.data
+}
+
+export async function getFleetPoolCards(params: {
+  pool?: string
+  hostId?: number
+  project?: string
+} = {}): Promise<FleetGpuCard[]> {
+  const res = await api.get<Envelope<{ cards: FleetGpuCard[]; total: number }>>(
+    '/api/fleet/pools/cards',
+    {
+      params: {
+        pool: params.pool ?? '',
+        host_id: params.hostId ?? 0,
+        project: params.project ?? '',
+      },
+    }
+  )
+  return res.data.data?.cards ?? []
+}
+
+export async function setFleetGpuPool(
+  hostId: number,
+  gpuIndex: number,
+  body: { pool: string; project?: string; team?: string; note?: string }
+): Promise<void> {
+  await api.put(`/api/fleet/pools/card/${hostId}/${gpuIndex}`, body)
+}
+
+export async function batchSetFleetGpuPool(body: {
+  host_id: number
+  gpu_indexes: number[]
+  pool: string
+  project?: string
+  team?: string
+}): Promise<number> {
+  const res = await api.post<Envelope<{ updated: number }>>(
+    '/api/fleet/pools/batch',
+    body
+  )
+  return res.data.data?.updated ?? 0
+}
+
+export async function getFleetProjects(): Promise<string[]> {
+  const res = await api.get<Envelope<string[]>>('/api/fleet/pools/projects')
+  return res.data.data ?? []
+}
+
+export async function getFleetBilling(month = ''): Promise<FleetBilling> {
+  const res = await api.get<Envelope<FleetBilling>>('/api/fleet/pools/billing', {
+    params: { month },
+  })
+  return res.data.data
 }

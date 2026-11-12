@@ -52,11 +52,18 @@ const DASHBOARD_SECTIONS = [
     adminOnly: true,
     build: () => null,
   },
+  {
+    // 算力区分：专属 / 弹性 / 未分配 + 分账
+    id: 'pools',
+    titleKey: '算力池',
+    adminOnly: true,
+    build: () => null,
+  },
 ] as const
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]['id']
 
-const ADMIN_ONLY_SECTIONS = new Set<string>(['users', 'servers'])
+const ADMIN_ONLY_SECTIONS = new Set<string>(['users', 'servers', 'pools'])
 
 const dashboardRegistry = createSectionRegistry<
   DashboardSectionId,
