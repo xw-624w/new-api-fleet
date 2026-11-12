@@ -32,7 +32,7 @@ import {
   Thermometer,
   Zap,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
@@ -182,6 +182,20 @@ export function ServerFleet() {
   const wasted = hosts
     .filter((h) => h.idle_cards > 0)
     .sort((a, b) => b.idle_cards - a.idle_cards)
+
+  // 把「利用率之和」换算成「占当前口径算力的百分比」：value ÷ 卡数
+  // 口径跟着上面的统计口径切换，分母就是当前池的卡数
+  const scopeSeries = useMemo(() => {
+    const raw = seriesQuery.data
+    const cards = s?.gpus.total ?? 0
+    if (!raw || cards <= 0) return raw
+    const points = raw.points.map((p) => {
+      const out: Record<string, number> = { ts: Number(p.ts) }
+      for (const k of raw.keys) out[k] = (p[k] ?? 0) / cards
+      return out
+    })
+    return { ...raw, points }
+  }, [seriesQuery.data, s?.gpus.total])
 
   if (loading) {
     return (
@@ -543,18 +557,28 @@ export function ServerFleet() {
                 'Top {{count}} items, the rest merged into Other. Click legend to toggle.',
                 { count: 6 }
               )}
+              <span className='mt-0.5 block text-[11px]'>
+                数字 = 占「
+                {poolScope === 'all'
+                  ? '全部'
+                  : poolScope === 'dedicated'
+                    ? '专属'
+                    : poolScope === 'shared'
+                      ? '弹性'
+                      : '未分配'}
+                」口径 {s?.gpus.total ?? 0} 张卡总算力的百分比
+              </span>
             </CardDescription>
           </div>
-          <div className='text-muted-foreground text-xs'>
-            {t('Unit: summed GPU utilization')}
-          </div>
+          <div className='text-muted-foreground text-xs'>单位：%</div>
         </CardHeader>
         <CardContent>
           <TrendChart
-            series={seriesQuery.data}
+            series={scopeSeries}
             groupBy={groupBy}
             onGroupByChange={setGroupBy}
             rangeDays={rangeDays}
+            suffix='%'
           />
         </CardContent>
       </Card>

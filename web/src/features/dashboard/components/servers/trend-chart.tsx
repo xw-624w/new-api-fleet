@@ -61,6 +61,8 @@ interface TrendChartProps {
   onGroupByChange?: (value: 'app' | 'host') => void
   /** 当前区间天数，决定 X 轴刻度粒度 */
   rangeDays: number
+  /** 数值后缀，例如 '%'（占比口径） */
+  suffix?: string
 }
 
 // X 轴刻度：一天看时分，一周看「日期+小时」，按天分桶时只显示日期
@@ -85,6 +87,7 @@ export function TrendChart({
   groupBy,
   onGroupByChange,
   rangeDays,
+  suffix = '',
 }: TrendChartProps) {
   const { t } = useTranslation()
   const [hidden, setHidden] = useState<Set<string>>(new Set())
@@ -222,8 +225,11 @@ export function TrendChart({
               tick={{ fontSize: 11 }}
               tickLine={false}
               stroke='#9ca3af'
+              tickFormatter={(v: number) =>
+                suffix ? `${Math.round(v * 10) / 10}${suffix}` : String(v)
+              }
             />
-            <Tooltip content={<FleetTooltip />} />
+            <Tooltip content={<FleetTooltip suffix={suffix} />} />
             {visibleKeys.map((key) => {
               const idx = keys.indexOf(key)
               const color = PALETTE[idx % PALETTE.length]
@@ -318,9 +324,10 @@ function FleetTooltip(props: {
   active?: boolean
   payload?: Array<{ name?: string; value?: number; color?: string }>
   label?: number
+  suffix?: string
 }) {
   const { t } = useTranslation()
-  const { active, payload, label } = props
+  const { active, payload, label, suffix = '' } = props
   if (!active || !payload || payload.length === 0) return null
 
   const items = payload
@@ -346,6 +353,7 @@ function FleetTooltip(props: {
             <span className='max-w-52 truncate'>{p.name}</span>
             <span className='ml-auto tabular-nums'>
               {Math.round((p.value ?? 0) * 10) / 10}
+              {suffix}
             </span>
           </div>
         ))}
