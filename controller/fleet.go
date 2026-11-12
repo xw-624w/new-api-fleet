@@ -63,9 +63,9 @@ func abs64(v int64) int64 {
 }
 
 func FleetSummary(c *gin.Context) {
-	// ?range=1d|7d|14d|29d，默认当天
+	// ?range=1d|7d|14d|29d，默认当天；?pool=dedicated|shared|unassigned 只看该池
 	days := parseRangeDays(c.Query("range"), 1)
-	data, err := model.GetFleetSummary(days)
+	data, err := model.GetFleetSummary(days, c.Query("pool"))
 	if err != nil {
 		common.ApiError(c, err)
 		return

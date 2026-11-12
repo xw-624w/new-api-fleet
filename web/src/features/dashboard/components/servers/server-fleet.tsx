@@ -122,6 +122,9 @@ function UtilBar({ value }: { value: number }) {
 export function ServerFleet() {
   const { t } = useTranslation()
   const [rangeDays, setRangeDays] = useState<number>(1)
+  const [poolScope, setPoolScope] = useState<
+    'all' | 'dedicated' | 'shared' | 'unassigned'
+  >('all')
   const [groupBy, setGroupBy] = useState<'app' | 'host'>('app')
   const [hostFilter, setHostFilter] = useState<number>(0)
   const [selectedHostId, setSelectedHostId] = useState<number | null>(null)
@@ -129,8 +132,9 @@ export function ServerFleet() {
   const [aliasTarget, setAliasTarget] = useState<AliasTarget | null>(null)
 
   const summary = useQuery({
-    queryKey: ['fleet-summary', rangeDays],
-    queryFn: () => getFleetSummary(rangeDays),
+    queryKey: ['fleet-summary', rangeDays, poolScope],
+    queryFn: () =>
+      getFleetSummary(rangeDays, poolScope === 'all' ? '' : poolScope),
     refetchInterval: 30_000,
   })
 
@@ -160,6 +164,17 @@ export function ServerFleet() {
   })
 
   const hosts = hostsQuery.data ?? []
+  // 选了某个池，列表只留含该池卡的机器，和上面的「共 N 台」对得上
+  const visibleHosts =
+    poolScope === 'all'
+      ? hosts
+      : hosts.filter((h) =>
+          poolScope === 'dedicated'
+            ? h.pool_dedicated > 0
+            : poolScope === 'shared'
+              ? h.pool_shared > 0
+              : h.pool_unassigned > 0
+        )
   const s = summary.data
   const loading =
     summary.isLoading || hostsQuery.isLoading || seriesQuery.isLoading
@@ -199,6 +214,17 @@ export function ServerFleet() {
                 })
               : t('No agent has reported yet')}
           </span>
+          {poolScope !== 'all' ? (
+            <Badge variant='outline' className='text-[11px]'>
+              仅
+              {poolScope === 'dedicated'
+                ? '专属'
+                : poolScope === 'shared'
+                  ? '弹性'
+                  : '未分配'}
+              卡
+            </Badge>
+          ) : null}
         </div>
         <div className='flex items-center gap-2'>
           <div className='bg-muted/60 inline-flex overflow-hidden rounded-lg border p-0.5'>
@@ -215,6 +241,36 @@ export function ServerFleet() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* 口径切换：切到某个池后，下面 5 张 KPI 全部只算该池的卡 */}
+      <div className='flex flex-wrap items-center gap-2'>
+        <span className='text-muted-foreground text-xs'>统计口径</span>
+        <div className='bg-muted/60 inline-flex overflow-hidden rounded-lg border p-0.5'>
+          {(
+            [
+              ['all', '全部'],
+              ['dedicated', '专属'],
+              ['shared', '弹性'],
+              ['unassigned', '未分配'],
+            ] as const
+          ).map(([key, label]) => (
+            <Button
+              key={key}
+              size='sm'
+              variant={poolScope === key ? 'default' : 'ghost'}
+              className='h-7 rounded-md px-3 text-xs'
+              onClick={() => setPoolScope(key)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+        <span className='text-muted-foreground/70 text-[11px]'>
+          {poolScope === 'all'
+            ? '全部显卡'
+            : `仅统计${poolScope === 'dedicated' ? '专属' : poolScope === 'shared' ? '弹性' : '未分配'}卡`}
+        </span>
       </div>
 
       <div className='grid grid-cols-2 gap-3 lg:grid-cols-5'>
@@ -280,7 +336,7 @@ export function ServerFleet() {
       </div>
 
       {/* 算力区分：专属 / 弹性 / 未分配 */}
-      {s?.pools ? (
+      {poolScope === 'all' && s?.pools ? (
         <div className='grid grid-cols-3 gap-3'>
           <StatTile
             icon={Shield}
@@ -344,6 +400,7 @@ export function ServerFleet() {
                   <th className='py-2 pr-3 font-medium'>{t('Host')}</th>
                   <th className='py-2 pr-3 font-medium'>{t('Room')}</th>
                   <th className='py-2 pr-3 font-medium'>{t('GPU')}</th>
+                  <th className='py-2 pr-3 font-medium'>算力池</th>
                   <th className='py-2 pr-3 font-medium'>{t('Utilization')}</th>
                   <th className='py-2 pr-3 font-medium'>{t('VRAM')}</th>
                   <th className='py-2 pr-3 font-medium'>{t('Temp')}</th>
@@ -352,7 +409,7 @@ export function ServerFleet() {
                 </tr>
               </thead>
               <tbody>
-                {hosts.map((host) => (
+                {visibleHosts.map((host) => (
                   <tr
                     key={host.id}
                     className={cn(
@@ -378,6 +435,31 @@ export function ServerFleet() {
                       {host.room || t('Not registered')}
                     </td>
                     <td className='py-2 pr-3 text-xs'>{host.gpu_summary}</td>
+                    <td className='py-2 pr-3 text-[11px]'>
+                      <div className='flex flex-wrap items-center gap-1'>
+                        {host.pool_dedicated > 0 ? (
+                          <span className='rounded bg-sky-500/12 px-1 py-px text-sky-600'>
+                            专属{host.pool_dedicated}
+                          </span>
+                        ) : null}
+                        {host.pool_shared > 0 ? (
+                          <span className='rounded bg-emerald-500/12 px-1 py-px text-emerald-600'>
+                            弹性{host.pool_shared}
+                          </span>
+                        ) : null}
+                        {host.pool_unassigned > 0 ? (
+                          <span className='rounded bg-amber-500/12 px-1 py-px text-amber-600'>
+                            未分配{host.pool_unassigned}
+                          </span>
+                        ) : null}
+                        {host.pool_dedicated +
+                          host.pool_shared +
+                          host.pool_unassigned ===
+                        0 ? (
+                          <span className='text-muted-foreground/60'>—</span>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className='py-2 pr-3'>
                       {host.status === 'offline' ? (
                         '—'

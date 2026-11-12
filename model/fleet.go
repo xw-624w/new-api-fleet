@@ -603,6 +603,10 @@ type FleetHostView struct {
 	TempMax     float64 `json:"temp_max"`
 	AppCount    int     `json:"apps"`
 	IdleCards   int     `json:"idle_cards"`
+	// 该机各池卡数（专属 / 弹性 / 未分配），列表里直接展示
+	PoolDedicated  int `json:"pool_dedicated"`
+	PoolShared     int `json:"pool_shared"`
+	PoolUnassigned int `json:"pool_unassigned"`
 }
 
 func ListFleetHosts() ([]FleetHostView, error) {
@@ -637,6 +641,7 @@ func ListFleetHosts() ([]FleetHostView, error) {
 		appMap[c.HostId] = c.N
 	}
 
+	poolMap := loadFleetPoolMap()
 	views := make([]FleetHostView, 0, len(hosts))
 	for _, h := range hosts {
 		v := FleetHostView{
@@ -664,6 +669,16 @@ func ListFleetHosts() ([]FleetHostView, error) {
 		for _, g := range gList {
 			if g.Util < 5 {
 				v.IdleCards++
+			}
+		}
+		for _, g := range gList {
+			switch fleetPoolOf(poolMap, g.HostId, g.GpuIndex).Pool {
+			case FleetPoolDedicated:
+				v.PoolDedicated++
+			case FleetPoolShared:
+				v.PoolShared++
+			default:
+				v.PoolUnassigned++
 			}
 		}
 		v.GpuSummary = summarizeFleetGpus(gList)
@@ -720,9 +735,18 @@ type FleetSummary struct {
 	Pools map[string]*FleetPoolStat `json:"pools,omitempty"`
 }
 
-func GetFleetSummary(rangeDays int) (*FleetSummary, error) {
+// GetFleetSummary 顶部 KPI。pool 为空或 all 时是全局口径；
+// 传 dedicated / shared / unassigned 时，所有指标只统计该池的卡。
+func GetFleetSummary(rangeDays int, pool string) (*FleetSummary, error) {
 	if rangeDays <= 0 {
 		rangeDays = 1
+	}
+	pool = strings.TrimSpace(strings.ToLower(pool))
+	if pool == "all" {
+		pool = ""
+	}
+	if pool != "" && pool != FleetPoolDedicated && pool != FleetPoolShared && pool != FleetPoolUnassigned {
+		pool = ""
 	}
 	RefreshFleetHostStatus()
 
@@ -731,22 +755,42 @@ func GetFleetSummary(rangeDays int) (*FleetSummary, error) {
 	if err := DB.Find(&hosts).Error; err != nil {
 		return nil, err
 	}
-	s.Hosts.Total = len(hosts)
-	online := make(map[int]bool, len(hosts))
+
+	var gpus []FleetGpu
+	if err := DB.Find(&gpus).Error; err != nil {
+		return nil, err
+	}
+
+	// 按池过滤：只留该池的卡
+	poolMap := loadFleetPoolMap()
+	if pool != "" {
+		kept := make([]FleetGpu, 0, len(gpus))
+		for _, g := range gpus {
+			if fleetPoolOf(poolMap, g.HostId, g.GpuIndex).Pool == pool {
+				kept = append(kept, g)
+			}
+		}
+		gpus = kept
+	}
+
+	// 主机口径：全局是所有机器；按池时只算「有该池卡」的机器
+	hostHasCard := make(map[int]bool, len(hosts))
+	for _, g := range gpus {
+		hostHasCard[g.HostId] = true
+	}
 	for _, h := range hosts {
+		if pool != "" && !hostHasCard[h.Id] {
+			continue
+		}
+		s.Hosts.Total++
 		if h.Status != FleetStatusOffline {
 			s.Hosts.Online++
-			online[h.Id] = true
 		}
 		if h.LastSeen > s.LastIngestAt {
 			s.LastIngestAt = h.LastSeen
 		}
 	}
 
-	var gpus []FleetGpu
-	if err := DB.Find(&gpus).Error; err != nil {
-		return nil, err
-	}
 	var utilSum float64
 	for _, g := range gpus {
 		s.Gpus.Total++
@@ -763,6 +807,7 @@ func GetFleetSummary(rangeDays int) (*FleetSummary, error) {
 		s.VramTotal += g.MemTotal
 	}
 	if s.Gpus.Total > 0 {
+		// 口径：池内每张卡一票的算术平均
 		s.AvgUtil = utilSum / float64(s.Gpus.Total)
 	}
 
@@ -776,28 +821,33 @@ func GetFleetSummary(rangeDays int) (*FleetSummary, error) {
 	}
 	todayStart := windowStart
 	var agg struct {
-		SumUtil  float64
-		Samples  int64
-		Distinct int64
+		SumUtil  float64 `gorm:"column:sum_util"`
+		Samples  int64   `gorm:"column:samples"`
+		Distinct int64   `gorm:"column:distinct"`
+		MinTs    int64   `gorm:"column:min_ts"`
+		MaxTs    int64   `gorm:"column:max_ts"`
 	}
-	DB.Model(&FleetGpuSample{}).
-		Select("COALESCE(SUM(util),0) as sum_util, COUNT(*) as samples, COUNT(DISTINCT ts) as distinct").
-		Where("ts >= ?", todayStart).Scan(&agg)
+	if pool == "" {
+		DB.Model(&FleetGpuSample{}).
+			Select("COALESCE(SUM(util),0) as sum_util, COUNT(*) as samples, COUNT(DISTINCT ts) as distinct, MIN(ts) as min_ts, MAX(ts) as max_ts").
+			Where("ts >= ?", todayStart).Scan(&agg)
+	} else {
+		DB.Raw(`SELECT COALESCE(SUM(s.util),0) AS sum_util, COUNT(*) AS samples,
+		               COUNT(DISTINCT s.ts) AS distinct, MIN(s.ts) AS min_ts, MAX(s.ts) AS max_ts
+		        FROM fleet_gpu_samples s
+		        JOIN fleet_gpu_pools p
+		          ON p.host_id = s.host_id AND p.gpu_index = s.gpu_index
+		        WHERE s.ts >= ? AND p.pool = ?`, todayStart, pool).Scan(&agg)
+	}
 	if agg.Samples > 0 {
 		interval := 30.0
-		var span struct {
-			MinTs int64
-			MaxTs int64
-		}
-		DB.Model(&FleetGpuSample{}).Where("ts >= ?", todayStart).
-			Select("MIN(ts) as min_ts, MAX(ts) as max_ts").Scan(&span)
-		if span.MaxTs > span.MinTs && agg.Distinct > 1 {
-			interval = float64(span.MaxTs-span.MinTs) / float64(agg.Distinct-1)
+		if agg.MaxTs > agg.MinTs && agg.Distinct > 1 {
+			interval = float64(agg.MaxTs-agg.MinTs) / float64(agg.Distinct-1)
 		}
 		s.GpuHoursToday = agg.SumUtil / 100 * interval / 3600
 		// 今日样本实际覆盖的小时数：用来把"卡时"翻译成"平均几张卡在跑"
-		if span.MaxTs > span.MinTs {
-			s.CoveredHoursToday = float64(span.MaxTs-span.MinTs) / 3600
+		if agg.MaxTs > agg.MinTs {
+			s.CoveredHoursToday = float64(agg.MaxTs-agg.MinTs) / 3600
 		}
 	}
 

@@ -55,6 +55,10 @@ export interface FleetHostRow {
   temp_max: number
   apps: number
   idle_cards: number
+  /** 该机各池卡数 */
+  pool_dedicated: number
+  pool_shared: number
+  pool_unassigned: number
 }
 
 export interface FleetGpu {

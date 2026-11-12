@@ -35,9 +35,12 @@ interface Envelope<T> {
   data: T
 }
 
-export async function getFleetSummary(rangeDays = 1): Promise<FleetSummary> {
+export async function getFleetSummary(
+  rangeDays = 1,
+  pool = ''
+): Promise<FleetSummary> {
   const res = await api.get<Envelope<FleetSummary>>('/api/fleet/summary', {
-    params: { range: `${rangeDays}d` },
+    params: { range: `${rangeDays}d`, pool },
   })
   return res.data.data
 }
