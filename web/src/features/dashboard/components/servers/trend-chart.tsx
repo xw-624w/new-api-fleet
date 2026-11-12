@@ -102,7 +102,14 @@ export function TrendChart({
       for (const p of series.points) sum += p[key] ?? 0
       totals.set(key, sum)
     }
-    const sorted = [...totals.entries()].sort((a, b) => b[1] - a[1]).map((e) => e[0])
+    // 池维度固定顺序与配色：专属/弹性/未分配，不随用量大小重排，
+    // 否则同一层颜色会在刷新后互换
+    const sorted =
+      groupBy === 'pool'
+        ? [...series.keys]
+        : [...totals.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map((e) => e[0])
     const top = sorted.slice(0, TOP_N)
     const rest = sorted.slice(TOP_N)
     const otherLabel = t('Other')

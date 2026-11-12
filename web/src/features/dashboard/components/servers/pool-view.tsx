@@ -532,13 +532,24 @@ export function PoolView() {
     URL.revokeObjectURL(url)
   }
 
-  const totals = useMemo(() => {
-    const list = Object.values(pools ?? {})
+  // 选某个池时只展示这个池的卡片与总数，不再把另外两个摆出来
+  const visiblePools: FleetPoolKind[] = useMemo(
+    () =>
+      poolFilter === 'all'
+        ? (['dedicated', 'shared', 'unassigned'] as FleetPoolKind[])
+        : [poolFilter],
+    [poolFilter]
+  )
+
+  const scopeTotals = useMemo(() => {
+    const list = visiblePools
+      .map((k) => pools?.[k])
+      .filter((p): p is NonNullable<typeof p> => Boolean(p))
     return {
       cards: list.reduce((n, p) => n + p.cards, 0),
       hours: list.reduce((n, p) => n + p.gpu_hours, 0),
     }
-  }, [pools])
+  }, [visiblePools, pools])
 
   if (poolsQuery.isLoading) {
     return (
@@ -574,7 +585,8 @@ export function PoolView() {
         </div>
         <div className='flex items-center gap-2'>
           <span className='text-muted-foreground text-xs tabular-nums'>
-            共 {totals.cards} 张卡 · {totals.hours.toFixed(1)} 卡时
+            共 {scopeTotals.cards} 张卡 · {scopeTotals.hours.toFixed(1)} 卡时
+            {poolFilter !== 'all' ? `（仅${POOL_META[poolFilter].label}）` : ''}
           </span>
           <div className='bg-muted/60 inline-flex overflow-hidden rounded-lg border p-0.5'>
             {RANGE_OPTIONS.map((days) => (
@@ -593,7 +605,7 @@ export function PoolView() {
       </div>
 
       <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
-        {(['dedicated', 'shared', 'unassigned'] as FleetPoolKind[]).map((k) => {
+        {visiblePools.map((k) => {
           const st = pools?.[k]
           return (
             <StatCard
@@ -604,7 +616,7 @@ export function PoolView() {
               idle={st?.idle ?? 0}
               hours={st?.gpu_hours ?? 0}
               projectCount={st?.projects ?? 0}
-              dimmed={poolFilter !== 'all' && poolFilter !== k}
+              dimmed={false}
             />
           )
         })}
@@ -617,7 +629,9 @@ export function PoolView() {
             算力池趋势
           </CardTitle>
           <CardDescription>
-            三个池的 GPU 利用率之和按池叠加；单位：利用率之和（可点图例隐藏）
+            {poolFilter === 'all'
+              ? '三个池的 GPU 利用率之和按池叠加；单位：利用率之和（可点图例隐藏）'
+              : `${POOL_META[poolFilter].label}池的 GPU 平均利用率（1/7/14/29 天联动）`}
           </CardDescription>
         </CardHeader>
         <CardContent>
