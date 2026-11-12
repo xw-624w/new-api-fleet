@@ -125,10 +125,13 @@ function StatCard(props: {
   idle: number
   hours: number
   projectCount?: number
+  dimmed?: boolean
 }) {
   const meta = POOL_META[props.pool]
   return (
-    <div className='rounded-lg border p-3'>
+    <div
+      className={cn('rounded-lg border p-3', props.dimmed && 'opacity-45')}
+    >
       <div className='flex items-center justify-between'>
         <div className='text-muted-foreground flex items-center gap-1.5 text-xs'>
           {props.pool === 'dedicated' ? (
@@ -435,6 +438,47 @@ export function PoolView() {
   )
   const allSelected = cards.length > 0 && selectedCards.length === cards.length
 
+  // 筛选到具体池时，左下的「按项目」换成「按机器」，并只统计该池的卡
+  const hostRows = useMemo(() => {
+    const m = new Map<
+      string,
+      { host: string; cards: number; utilSum: number; mem: number; memTotal: number }
+    >()
+    for (const c of cards) {
+      const r = m.get(c.hostname) ?? {
+        host: c.hostname,
+        cards: 0,
+        utilSum: 0,
+        mem: 0,
+        memTotal: 0,
+      }
+      r.cards += 1
+      r.utilSum += c.util
+      r.mem += c.mem_used
+      r.memTotal += c.mem_total
+      m.set(c.hostname, r)
+    }
+    return [...m.values()].sort((a, b) => b.cards - a.cards)
+  }, [cards])
+
+  // 分账表跟着池筛选走：专属只看有专属卡的项目，弹性只看有分摊的项目
+  const billingRows = useMemo(() => {
+    const rows = billing?.rows ?? []
+    if (poolFilter === 'all') return rows
+    if (poolFilter === 'dedicated') return rows.filter((r) => r.dedicated_cards > 0)
+    if (poolFilter === 'shared') return rows.filter((r) => r.shared_hours > 0)
+    return []
+  }, [billing, poolFilter])
+
+  // 选了某个池，趋势图只画这一条，和上面的筛选保持一致
+  const chartSeries = useMemo(() => {
+    const s = seriesQuery.data
+    if (!s || poolFilter === 'all') return s
+    const label =
+      poolFilter === 'dedicated' ? '专属' : poolFilter === 'shared' ? '弹性' : '未分配'
+    return { ...s, keys: [label] }
+  }, [seriesQuery.data, poolFilter])
+
   const toggle = (c: FleetGpuCard) => {
     const k = cardKey(c)
     setSelected((prev) => {
@@ -560,6 +604,7 @@ export function PoolView() {
               idle={st?.idle ?? 0}
               hours={st?.gpu_hours ?? 0}
               projectCount={st?.projects ?? 0}
+              dimmed={poolFilter !== 'all' && poolFilter !== k}
             />
           )
         })}
@@ -577,7 +622,7 @@ export function PoolView() {
         </CardHeader>
         <CardContent>
           <TrendChart
-            series={seriesQuery.data}
+            series={chartSeries}
             groupBy='pool'
             rangeDays={rangeDays}
           />
@@ -588,39 +633,85 @@ export function PoolView() {
         <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2 text-base'>
-              <Shield className='size-4' />
-              专属池 · 按项目
-            </CardTitle>            <CardDescription>
-              预留卡时按卡数折算，有效卡时按利用率折算
+              {poolFilter === 'all' || poolFilter === 'dedicated' ? (
+                <>
+                  <Shield className='size-4' />
+                  专属池 · 按项目
+                </>
+              ) : (
+                <>
+                  <Layers className='size-4' />
+                  {POOL_META[poolFilter].label}池 · 按机器
+                </>
+              )}
+            </CardTitle>
+            <CardDescription>
+              {poolFilter === 'all' || poolFilter === 'dedicated'
+                ? '预留卡时按卡数折算，有效卡时按利用率折算'
+                : '当前筛选下每台机器有几张卡、平均利用率与显存占用'}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {projectRows.length === 0 ? (
+            {poolFilter === 'all' || poolFilter === 'dedicated' ? (
+              projectRows.length === 0 ? (
+                <p className='text-muted-foreground rounded-md border border-dashed py-6 text-center text-xs'>
+                  还没有专属卡，先从下面的列表里给卡打标
+                </p>
+              ) : (
+                <table className='w-full text-sm'>
+                  <thead>
+                    <tr className='text-muted-foreground border-b text-left text-xs'>
+                      <th className='py-1.5 pr-3 font-medium'>项目</th>
+                      <th className='py-1.5 pr-3 text-right font-medium'>卡数</th>
+                      <th className='py-1.5 pr-3 text-right font-medium'>卡时</th>
+                      <th className='py-1.5 text-right font-medium'>平均利用率</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projectRows.map((p) => (
+                      <tr key={p.project} className='border-b last:border-0'>
+                        <td className='py-1.5 pr-3 font-medium'>{p.project}</td>
+                        <td className='py-1.5 pr-3 text-right tabular-nums'>
+                          {p.cards}
+                        </td>
+                        <td className='py-1.5 pr-3 text-right tabular-nums'>
+                          {p.gpu_hours.toFixed(1)}
+                        </td>
+                        <td className='text-muted-foreground py-1.5 text-right tabular-nums'>
+                          {p.avg_util.toFixed(0)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            ) : hostRows.length === 0 ? (
               <p className='text-muted-foreground rounded-md border border-dashed py-6 text-center text-xs'>
-                还没有专属卡，先从下面的列表里给卡打标
+                这个池里还没有卡
               </p>
             ) : (
               <table className='w-full text-sm'>
                 <thead>
                   <tr className='text-muted-foreground border-b text-left text-xs'>
-                    <th className='py-1.5 pr-3 font-medium'>项目</th>
+                    <th className='py-1.5 pr-3 font-medium'>主机</th>
                     <th className='py-1.5 pr-3 text-right font-medium'>卡数</th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>卡时</th>
-                    <th className='py-1.5 text-right font-medium'>平均利用率</th>
+                    <th className='py-1.5 pr-3 text-right font-medium'>平均利用率</th>
+                    <th className='py-1.5 text-right font-medium'>显存</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {projectRows.map((p) => (
-                    <tr key={p.project} className='border-b last:border-0'>
-                      <td className='py-1.5 pr-3 font-medium'>{p.project}</td>
+                  {hostRows.map((h) => (
+                    <tr key={h.host} className='border-b last:border-0'>
+                      <td className='py-1.5 pr-3 font-medium'>{h.host}</td>
                       <td className='py-1.5 pr-3 text-right tabular-nums'>
-                        {p.cards}
+                        {h.cards}
                       </td>
                       <td className='py-1.5 pr-3 text-right tabular-nums'>
-                        {p.gpu_hours.toFixed(1)}
+                        {(h.utilSum / Math.max(1, h.cards)).toFixed(0)}%
                       </td>
-                      <td className='text-muted-foreground py-1.5 text-right tabular-nums'>
-                        {p.avg_util.toFixed(0)}%
+                      <td className='text-muted-foreground py-1.5 text-right text-xs tabular-nums'>
+                        {Math.round(h.mem / 1024)}/
+                        {Math.round(h.memTotal / 1024)}G
                       </td>
                     </tr>
                   ))}
@@ -659,38 +750,54 @@ export function PoolView() {
           <CardContent className='overflow-x-auto'>
             {billingQuery.isLoading ? (
               <Skeleton className='h-32 w-full' />
-            ) : (billing?.rows?.length ?? 0) === 0 ? (
+            ) : poolFilter === 'unassigned' ? (
               <p className='text-muted-foreground rounded-md border border-dashed py-6 text-center text-xs'>
-                这个月没有用量数据
+                未分配的卡不参与分账，先打标再统计
+              </p>
+            ) : billingRows.length === 0 ? (
+              <p className='text-muted-foreground rounded-md border border-dashed py-6 text-center text-xs'>
+                这个月这个口径下没有用量数据
               </p>
             ) : (
               <table className='w-full text-sm'>
                 <thead>
                   <tr className='text-muted-foreground border-b text-left text-xs'>
                     <th className='py-1.5 pr-3 font-medium'>项目</th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>专属卡</th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>预留(h)</th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>有效(h)</th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>弹性(h)</th>
+                    {poolFilter !== 'shared' && (
+                      <>
+                        <th className='py-1.5 pr-3 text-right font-medium'>专属卡</th>
+                        <th className='py-1.5 pr-3 text-right font-medium'>预留(h)</th>
+                        <th className='py-1.5 pr-3 text-right font-medium'>有效(h)</th>
+                      </>
+                    )}
+                    {poolFilter !== 'dedicated' && (
+                      <th className='py-1.5 pr-3 text-right font-medium'>弹性(h)</th>
+                    )}
                     <th className='py-1.5 text-right font-medium'>合计(h)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {billing?.rows.map((r) => (
+                  {billingRows.map((r) => (
                     <tr key={r.project} className='border-b last:border-0'>
                       <td className='py-1.5 pr-3 font-medium'>{r.project}</td>
-                      <td className='py-1.5 pr-3 text-right tabular-nums'>
-                        {r.dedicated_cards}
-                      </td>
-                      <td className='text-muted-foreground py-1.5 pr-3 text-right tabular-nums'>
-                        {r.reserved_hours.toFixed(1)}
-                      </td>
-                      <td className='py-1.5 pr-3 text-right tabular-nums'>
-                        {r.effective_hours.toFixed(1)}
-                      </td>
-                      <td className='py-1.5 pr-3 text-right tabular-nums'>
-                        {r.shared_hours.toFixed(1)}
-                      </td>
+                      {poolFilter !== 'shared' && (
+                        <>
+                          <td className='py-1.5 pr-3 text-right tabular-nums'>
+                            {r.dedicated_cards}
+                          </td>
+                          <td className='text-muted-foreground py-1.5 pr-3 text-right tabular-nums'>
+                            {r.reserved_hours.toFixed(1)}
+                          </td>
+                          <td className='py-1.5 pr-3 text-right tabular-nums'>
+                            {r.effective_hours.toFixed(1)}
+                          </td>
+                        </>
+                      )}
+                      {poolFilter !== 'dedicated' && (
+                        <td className='py-1.5 pr-3 text-right tabular-nums'>
+                          {r.shared_hours.toFixed(1)}
+                        </td>
+                      )}
                       <td className='py-1.5 text-right font-medium tabular-nums'>
                         {r.total_hours.toFixed(1)}
                       </td>

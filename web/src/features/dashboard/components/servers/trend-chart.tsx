@@ -63,10 +63,14 @@ interface TrendChartProps {
   rangeDays: number
 }
 
-// X 轴刻度：一天看时分，一周看「日期+小时」，更久只看日期
-function formatTick(ts: number, rangeDays: number): string {
+// X 轴刻度：一天看时分，一周看「日期+小时」，按天分桶时只显示日期
+function formatTick(ts: number, rangeDays: number, step: number): string {
   const d = new Date(ts * 1000)
   const pad = (n: number) => String(n).padStart(2, '0')
+  // 按天聚合时小时恒为 00，标出来只是噪音
+  if (step >= 86400) {
+    return `${d.getMonth() + 1}/${d.getDate()}`
+  }
   if (rangeDays <= 1) {
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
@@ -202,7 +206,9 @@ export function TrendChart({
               tickLine={false}
               minTickGap={44}
               stroke='#9ca3af'
-              tickFormatter={(v: number) => formatTick(v, rangeDays)}
+              tickFormatter={(v: number) =>
+                formatTick(v, rangeDays, series?.step ?? 60)
+              }
             />
             <YAxis
               width={44}
