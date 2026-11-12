@@ -852,9 +852,11 @@ func FleetSeries(groupBy string, start, end, step int64) (map[string]any, error)
 	if step <= 0 {
 		step = 300
 	}
-	// 只有明确要 host 时才按机器分组，其他非法值一律回退到 app，
+	// 只有明确要 host / pool 时才按机器或池分组，其他非法值一律回退到 app，
 	// 避免拼错参数后静默返回另一种维度。
-	if groupBy != "host" {
+	switch groupBy {
+	case "host", "pool":
+	default:
 		groupBy = "app"
 	}
 	type row struct {
@@ -916,6 +918,56 @@ func FleetSeries(groupBy string, start, end, step int64) (map[string]any, error)
 			item := map[string]any{"ts": b}
 			for name, v := range merged[b] {
 				item[name] = v
+			}
+			out = append(out, item)
+		}
+		return map[string]any{"step": step, "keys": keys, "points": out}, nil
+
+	case "pool":
+		// 各池的利用率之和：口径与「按应用」一致，便于叠加对比
+		tz := fleetTZOffset()
+		var prows []struct {
+			Bucket int64   `gorm:"column:bucket"`
+			Key    string  `gorm:"column:pool_key"`
+			Value  float64 `gorm:"column:value"`
+		}
+		DB.Raw(`SELECT ((s.ts + ?) / ?) * ? - ? AS bucket,
+		               COALESCE(p.pool, 'unassigned') AS pool_key,
+		               COALESCE(AVG(s.util), 0) AS value
+		        FROM fleet_gpu_samples s
+		        LEFT JOIN fleet_gpu_pools p
+		               ON p.host_id = s.host_id AND p.gpu_index = s.gpu_index
+		        WHERE s.ts >= ? AND s.ts <= ?
+		        GROUP BY 1, 2 ORDER BY 1`, tz, step, step, tz, start, end).Scan(&prows)
+
+		label := map[string]string{
+			FleetPoolDedicated:  "专属",
+			FleetPoolShared:     "弹性",
+			FleetPoolUnassigned: "未分配",
+		}
+		points := map[int64]map[string]float64{}
+		for _, r := range prows {
+			name := label[r.Key]
+			if name == "" {
+				name = r.Key
+			}
+			if points[r.Bucket] == nil {
+				points[r.Bucket] = map[string]float64{}
+			}
+			points[r.Bucket][name] += r.Value
+		}
+		// 固定图例顺序，没数据的池也保留，避免图例跳来跳去
+		keys := []string{"专属", "弹性", "未分配"}
+		buckets := make([]int64, 0, len(points))
+		for b := range points {
+			buckets = append(buckets, b)
+		}
+		sort.Slice(buckets, func(i, j int) bool { return buckets[i] < buckets[j] })
+		out := make([]map[string]any, 0, len(buckets))
+		for _, b := range buckets {
+			item := map[string]any{"ts": b}
+			for _, k := range keys {
+				item[k] = points[b][k]
 			}
 			out = append(out, item)
 		}

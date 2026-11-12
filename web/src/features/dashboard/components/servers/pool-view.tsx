@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Activity,
   Boxes,
   Download,
   Layers,
@@ -50,8 +51,10 @@ import {
   getFleetPoolCards,
   getFleetPools,
   getFleetProjects,
+  getFleetSeries,
   setFleetGpuPool,
 } from './api'
+import { TrendChart } from './trend-chart'
 import type { FleetGpuCard, FleetPoolKind } from './types'
 
 const RANGE_OPTIONS = [1, 7, 14, 29] as const
@@ -415,6 +418,12 @@ export function PoolView() {
     queryFn: () => getFleetBilling(month),
   })
 
+  const seriesQuery = useQuery({
+    queryKey: ['fleet-pool-series', rangeDays],
+    queryFn: () => getFleetSeries(rangeDays, 'pool'),
+    refetchInterval: 60_000,
+  })
+
   const pools = poolsQuery.data?.pools
   const projectRows = poolsQuery.data?.projects ?? []
   const cards = cardsQuery.data ?? []
@@ -556,14 +565,32 @@ export function PoolView() {
         })}
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className='flex items-center gap-2 text-base'>
+            <Activity className='size-4' />
+            算力池趋势
+          </CardTitle>
+          <CardDescription>
+            三个池的 GPU 利用率之和按池叠加；单位：利用率之和（可点图例隐藏）
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TrendChart
+            series={seriesQuery.data}
+            groupBy='pool'
+            rangeDays={rangeDays}
+          />
+        </CardContent>
+      </Card>
+
       <div className='grid gap-3 lg:grid-cols-2'>
         <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2 text-base'>
               <Shield className='size-4' />
               专属池 · 按项目
-            </CardTitle>
-            <CardDescription>
+            </CardTitle>            <CardDescription>
               预留卡时按卡数折算，有效卡时按利用率折算
             </CardDescription>
           </CardHeader>

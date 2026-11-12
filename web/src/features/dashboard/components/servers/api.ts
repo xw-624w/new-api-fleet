@@ -54,7 +54,7 @@ export async function getFleetHostDetail(id: number): Promise<FleetHostDetail> {
 
 export async function getFleetSeries(
   rangeDays: number,
-  groupBy: 'app' | 'host' = 'app'
+  groupBy: 'app' | 'host' | 'pool' = 'app'
 ): Promise<FleetSeries> {
   const res = await api.get<Envelope<FleetSeries>>('/api/fleet/series', {
     params: { range: `${rangeDays}d`, group_by: groupBy },

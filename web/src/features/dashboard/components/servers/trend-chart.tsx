@@ -57,8 +57,8 @@ interface Gap {
 
 interface TrendChartProps {
   series: FleetSeries | undefined
-  groupBy: 'app' | 'host'
-  onGroupByChange: (value: 'app' | 'host') => void
+  groupBy: 'app' | 'host' | 'pool'
+  onGroupByChange?: (value: 'app' | 'host') => void
   /** 当前区间天数，决定 X 轴刻度粒度 */
   rangeDays: number
 }
@@ -158,24 +158,28 @@ export function TrendChart({
   return (
     <div className='space-y-2'>
       <div className='flex justify-end'>
-        <div className='bg-muted/60 inline-flex overflow-hidden rounded-lg border p-0.5'>
-          <Button
-            size='sm'
-            variant={groupBy === 'app' ? 'default' : 'ghost'}
-            className='h-6 rounded-md px-2 text-[11px]'
-            onClick={() => onGroupByChange('app')}
-          >
-            {t('By app')}
-          </Button>
-          <Button
-            size='sm'
-            variant={groupBy === 'host' ? 'default' : 'ghost'}
-            className='h-6 rounded-md px-2 text-[11px]'
-            onClick={() => onGroupByChange('host')}
-          >
-            {t('By machine')}
-          </Button>
-        </div>
+        {groupBy === 'pool' ? (
+          <span className='text-muted-foreground text-[11px]'>按算力池</span>
+        ) : (
+          <div className='bg-muted/60 inline-flex overflow-hidden rounded-lg border p-0.5'>
+            <Button
+              size='sm'
+              variant={groupBy === 'app' ? 'default' : 'ghost'}
+              className='h-6 rounded-md px-2 text-[11px]'
+              onClick={() => onGroupByChange?.('app')}
+            >
+              {t('By app')}
+            </Button>
+            <Button
+              size='sm'
+              variant={groupBy === 'host' ? 'default' : 'ghost'}
+              className='h-6 rounded-md px-2 text-[11px]'
+              onClick={() => onGroupByChange?.('host')}
+            >
+              {t('By machine')}
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className='h-64 w-full'>
