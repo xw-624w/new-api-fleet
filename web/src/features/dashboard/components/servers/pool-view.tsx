@@ -39,7 +39,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -714,9 +713,11 @@ export function PoolView() {
             <thead>
               <tr className='text-muted-foreground border-b text-left text-xs'>
                 <th className='w-8 py-1.5 pr-2'>
-                  <Checkbox
+                  <input
+                    type='checkbox'
+                    className='accent-primary size-4 cursor-pointer'
                     checked={allSelected}
-                    onCheckedChange={toggleAll}
+                    onChange={toggleAll}
                     aria-label='全选'
                   />
                 </th>
@@ -744,9 +745,11 @@ export function PoolView() {
                     )}
                   >
                     <td className='py-1.5 pr-2'>
-                      <Checkbox
+                      <input
+                        type='checkbox'
+                        className='accent-primary size-4 cursor-pointer'
                         checked={checked}
-                        onCheckedChange={() => toggle(c)}
+                        onChange={() => toggle(c)}
                         aria-label={`选择 ${c.hostname} GPU${c.gpu_index}`}
                       />
                     </td>
