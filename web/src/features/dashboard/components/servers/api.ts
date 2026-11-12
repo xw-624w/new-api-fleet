@@ -223,11 +223,11 @@ export async function setFleetGpuPool(
 }
 
 export async function batchSetFleetGpuPool(body: {
-  host_id: number
-  gpu_indexes: number[]
+  cards: Array<{ host_id: number; gpu_index: number }>
   pool: string
   project?: string
   team?: string
+  note?: string
 }): Promise<number> {
   const res = await api.post<Envelope<{ updated: number }>>(
     '/api/fleet/pools/batch',

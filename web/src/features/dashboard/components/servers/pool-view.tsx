@@ -39,12 +39,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
 import {
+  batchSetFleetGpuPool,
   getFleetBilling,
   getFleetPoolCards,
   getFleetPools,
@@ -76,12 +78,41 @@ const POOL_META: Record<
   },
 }
 
+const cardKey = (c: FleetGpuCard) => `${c.host_id}:${c.gpu_index}`
+
 function PoolBadge({ pool }: { pool: FleetPoolKind }) {
   const meta = POOL_META[pool] ?? POOL_META.unassigned
   return (
     <Badge variant='outline' className={cn('font-normal', meta.tone)}>
       {meta.label}
     </Badge>
+  )
+}
+
+function PoolPicker(props: {
+  pool: FleetPoolKind
+  onChange: (p: FleetPoolKind) => void
+}) {
+  return (
+    <div className='grid gap-1.5'>
+      <Label>算力池</Label>
+      <div className='flex gap-1.5'>
+        {(['dedicated', 'shared', 'unassigned'] as FleetPoolKind[]).map((k) => (
+          <Button
+            key={k}
+            size='sm'
+            variant={props.pool === k ? 'default' : 'outline'}
+            className='h-7 px-3 text-xs'
+            onClick={() => props.onChange(k)}
+          >
+            {POOL_META[k].label}
+          </Button>
+        ))}
+      </div>
+      <p className='text-muted-foreground text-[11px]'>
+        {POOL_META[props.pool].hint}
+      </p>
+    </div>
   )
 }
 
@@ -112,9 +143,7 @@ function StatCard(props: {
         </Badge>
       </div>
       <div className='mt-1 flex items-baseline gap-1'>
-        <span className='text-xl font-semibold tabular-nums'>
-          {props.inUse}
-        </span>
+        <span className='text-xl font-semibold tabular-nums'>{props.inUse}</span>
         <span className='text-muted-foreground text-xs'>在用</span>
         <span className='text-muted-foreground mx-1 text-xs'>/</span>
         <span className='text-muted-foreground text-xs tabular-nums'>
@@ -126,12 +155,12 @@ function StatCard(props: {
         {props.pool === 'dedicated' && props.projectCount != null
           ? ` · ${props.projectCount} 个项目`
           : ''}
-        <div className='hidden'>{meta.hint}</div>
       </div>
     </div>
   )
 }
 
+// 单卡编辑
 function EditCardDialog(props: {
   card: FleetGpuCard | null
   projects: string[]
@@ -176,9 +205,7 @@ function EditCardDialog(props: {
         if (!open) onClose()
       }}
       title={
-        card
-          ? `设置归属 — ${card.hostname} · GPU${card.gpu_index}`
-          : '设置归属'
+        card ? `设置归属 — ${card.hostname} · GPU${card.gpu_index}` : '设置归属'
       }
       description={
         card
@@ -198,27 +225,7 @@ function EditCardDialog(props: {
       }
     >
       <div className='grid gap-3 py-1'>
-        <div className='grid gap-1.5'>
-          <Label>算力池</Label>
-          <div className='flex gap-1.5'>
-            {(['dedicated', 'shared', 'unassigned'] as FleetPoolKind[]).map(
-              (k) => (
-                <Button
-                  key={k}
-                  size='sm'
-                  variant={pool === k ? 'default' : 'outline'}
-                  className='h-7 px-3 text-xs'
-                  onClick={() => setPool(k)}
-                >
-                  {POOL_META[k].label}
-                </Button>
-              )
-            )}
-          </div>
-          <p className='text-muted-foreground text-[11px]'>
-            {POOL_META[pool].hint}
-          </p>
-        </div>
+        <PoolPicker pool={pool} onChange={setPool} />
         {pool === 'dedicated' && (
           <>
             <div className='grid gap-1.5'>
@@ -261,10 +268,125 @@ function EditCardDialog(props: {
   )
 }
 
+// 批量编辑
+function BatchEditDialog(props: {
+  cards: FleetGpuCard[]
+  projects: string[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const { cards, projects, onClose, onSaved } = props
+  const [pool, setPool] = useState<FleetPoolKind>('dedicated')
+  const [project, setProject] = useState('')
+  const [team, setTeam] = useState('')
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const hosts = useMemo(() => {
+    const set = new Set(cards.map((c) => c.hostname))
+    return [...set]
+  }, [cards])
+
+  const save = async () => {
+    if (pool === 'dedicated' && project.trim() === '') {
+      toast.error('专属卡必须填写项目名')
+      return
+    }
+    setSaving(true)
+    try {
+      const n = await batchSetFleetGpuPool({
+        cards: cards.map((c) => ({
+          host_id: c.host_id,
+          gpu_index: c.gpu_index,
+        })),
+        pool,
+        project,
+        team,
+        note,
+      })
+      toast.success(`已更新 ${n} 张卡的归属`)
+      onSaved()
+      onClose()
+    } catch {
+      toast.error('批量设置失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={cards.length > 0}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+      title={`批量设置归属 — ${cards.length} 张卡`}
+      description={`涉及 ${hosts.length} 台机器：${hosts.join('、')}`}
+      footer={
+        <>
+          <Button variant='outline' onClick={onClose}>
+            取消
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? <Loader2 className='mr-2 size-4 animate-spin' /> : null}
+            应用到 {cards.length} 张卡
+          </Button>
+        </>
+      }
+    >
+      <div className='grid gap-3 py-1'>
+        <PoolPicker pool={pool} onChange={setPool} />
+        {pool === 'dedicated' && (
+          <>
+            <div className='grid gap-1.5'>
+              <Label htmlFor='batch-project'>归属项目</Label>
+              <Input
+                id='batch-project'
+                list='batch-project-options'
+                value={project}
+                placeholder='例如：客服机器人'
+                onChange={(e) => setProject(e.target.value)}
+              />
+              <datalist id='batch-project-options'>
+                {projects.map((p) => (
+                  <option key={p} value={p} />
+                ))}
+              </datalist>
+            </div>
+            <div className='grid gap-1.5'>
+              <Label htmlFor='batch-team'>所属团队（可选）</Label>
+              <Input
+                id='batch-team'
+                value={team}
+                placeholder='例如：算法组'
+                onChange={(e) => setTeam(e.target.value)}
+              />
+            </div>
+          </>
+        )}
+        <div className='grid gap-1.5'>
+          <Label htmlFor='batch-note'>备注（可选）</Label>
+          <Input
+            id='batch-note'
+            value={note}
+            placeholder='例如：2026-11 规划调整'
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </div>
+        <p className='text-muted-foreground text-[11px]'>
+          会逐张写入并记录变更历史，可在每张卡的历史里回滚。
+        </p>
+      </div>
+    </Dialog>
+  )
+}
+
 export function PoolView() {
   const [rangeDays, setRangeDays] = useState<number>(7)
   const [poolFilter, setPoolFilter] = useState<'all' | FleetPoolKind>('all')
   const [editing, setEditing] = useState<FleetGpuCard | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [batchOpen, setBatchOpen] = useState(false)
   const [month, setMonth] = useState<string>(() => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -280,9 +402,7 @@ export function PoolView() {
   const cardsQuery = useQuery({
     queryKey: ['fleet-pool-cards', poolFilter],
     queryFn: () =>
-      getFleetPoolCards({
-        pool: poolFilter === 'all' ? '' : poolFilter,
-      }),
+      getFleetPoolCards({ pool: poolFilter === 'all' ? '' : poolFilter }),
     refetchInterval: 30_000,
   })
 
@@ -301,12 +421,37 @@ export function PoolView() {
   const cards = cardsQuery.data ?? []
   const billing = billingQuery.data
 
+  const selectedCards = useMemo(
+    () => cards.filter((c) => selected.has(cardKey(c))),
+    [cards, selected]
+  )
+  const allSelected = cards.length > 0 && selectedCards.length === cards.length
+
+  const toggle = (c: FleetGpuCard) => {
+    const k = cardKey(c)
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(cards.map(cardKey)))
+    }
+  }
+
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['fleet-pools'] })
     void qc.invalidateQueries({ queryKey: ['fleet-pool-cards'] })
     void qc.invalidateQueries({ queryKey: ['fleet-billing'] })
     void qc.invalidateQueries({ queryKey: ['fleet-summary'] })
     void qc.invalidateQueries({ queryKey: ['fleet-projects'] })
+    setSelected(new Set())
   }
 
   const exportCsv = () => {
@@ -354,7 +499,6 @@ export function PoolView() {
 
   return (
     <div className='space-y-3 sm:space-y-4'>
-      {/* 顶部：池筛选 + 时间范围 */}
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <div className='bg-muted/60 inline-flex overflow-hidden rounded-lg border p-0.5'>
           {(
@@ -396,7 +540,6 @@ export function PoolView() {
         </div>
       </div>
 
-      {/* 三个池 */}
       <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
         {(['dedicated', 'shared', 'unassigned'] as FleetPoolKind[]).map((k) => {
           const st = pools?.[k]
@@ -415,7 +558,6 @@ export function PoolView() {
       </div>
 
       <div className='grid gap-3 lg:grid-cols-2'>
-        {/* 专属池按项目 */}
         <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2 text-base'>
@@ -436,12 +578,8 @@ export function PoolView() {
                 <thead>
                   <tr className='text-muted-foreground border-b text-left text-xs'>
                     <th className='py-1.5 pr-3 font-medium'>项目</th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>
-                      卡数
-                    </th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>
-                      卡时
-                    </th>
+                    <th className='py-1.5 pr-3 text-right font-medium'>卡数</th>
+                    <th className='py-1.5 pr-3 text-right font-medium'>卡时</th>
                     <th className='py-1.5 text-right font-medium'>平均利用率</th>
                   </tr>
                 </thead>
@@ -466,7 +604,6 @@ export function PoolView() {
           </CardContent>
         </Card>
 
-        {/* 分账 */}
         <Card>
           <CardHeader className='flex-row items-start justify-between'>
             <div>
@@ -474,9 +611,7 @@ export function PoolView() {
                 <Boxes className='size-4' />
                 分账 · 按项目
               </CardTitle>
-              <CardDescription>
-                专属卡按归属计，弹性卡按应用分摊
-              </CardDescription>
+              <CardDescription>专属卡按归属计，弹性卡按应用分摊</CardDescription>
             </div>
             <div className='flex items-center gap-1.5'>
               <Input
@@ -507,18 +642,10 @@ export function PoolView() {
                 <thead>
                   <tr className='text-muted-foreground border-b text-left text-xs'>
                     <th className='py-1.5 pr-3 font-medium'>项目</th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>
-                      专属卡
-                    </th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>
-                      预留(h)
-                    </th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>
-                      有效(h)
-                    </th>
-                    <th className='py-1.5 pr-3 text-right font-medium'>
-                      弹性(h)
-                    </th>
+                    <th className='py-1.5 pr-3 text-right font-medium'>专属卡</th>
+                    <th className='py-1.5 pr-3 text-right font-medium'>预留(h)</th>
+                    <th className='py-1.5 pr-3 text-right font-medium'>有效(h)</th>
+                    <th className='py-1.5 pr-3 text-right font-medium'>弹性(h)</th>
                     <th className='py-1.5 text-right font-medium'>合计(h)</th>
                   </tr>
                 </thead>
@@ -550,7 +677,6 @@ export function PoolView() {
         </Card>
       </div>
 
-      {/* 卡列表 */}
       <Card>
         <CardHeader>
           <CardTitle className='flex items-center gap-2 text-base'>
@@ -558,13 +684,42 @@ export function PoolView() {
             显卡归属
           </CardTitle>
           <CardDescription>
-            逐卡打标：专属卡填项目，弹性卡留空；未分配的卡不计入弹性池
+            逐卡打标：勾选多张可批量设置；专属卡填项目，弹性卡留空
           </CardDescription>
         </CardHeader>
         <CardContent className='overflow-x-auto'>
+          {selectedCards.length > 0 ? (
+            <div className='bg-muted/50 mb-2 flex flex-wrap items-center gap-2 rounded-md border px-3 py-2'>
+              <span className='text-xs font-medium'>
+                已选 {selectedCards.length} 张卡（{new Set(selectedCards.map((c) => c.hostname)).size} 台机器）
+              </span>
+              <Button
+                size='sm'
+                className='h-7 px-3 text-xs'
+                onClick={() => setBatchOpen(true)}
+              >
+                批量设置归属
+              </Button>
+              <Button
+                size='sm'
+                variant='ghost'
+                className='h-7 px-2 text-xs'
+                onClick={() => setSelected(new Set())}
+              >
+                取消选择
+              </Button>
+            </div>
+          ) : null}
           <table className='w-full text-sm'>
             <thead>
               <tr className='text-muted-foreground border-b text-left text-xs'>
+                <th className='w-8 py-1.5 pr-2'>
+                  <Checkbox
+                    checked={allSelected}
+                    onCheckedChange={toggleAll}
+                    aria-label='全选'
+                  />
+                </th>
                 <th className='py-1.5 pr-3 font-medium'>主机</th>
                 <th className='py-1.5 pr-3 font-medium'>卡</th>
                 <th className='py-1.5 pr-3 font-medium'>型号</th>
@@ -577,51 +732,65 @@ export function PoolView() {
               </tr>
             </thead>
             <tbody>
-              {cards.map((c) => (
-                <tr
-                  key={`${c.host_id}-${c.gpu_index}`}
-                  className='border-b last:border-0'
-                >
-                  <td className='py-1.5 pr-3 font-medium'>{c.hostname}</td>
-                  <td className='py-1.5 pr-3 tabular-nums'>GPU{c.gpu_index}</td>
-                  <td className='text-muted-foreground truncate py-1.5 pr-3 text-xs'>
-                    {c.model}
-                  </td>
-                  <td className='py-1.5 pr-3 tabular-nums'>
-                    {Math.round(c.util)}%
-                  </td>
-                  <td className='text-muted-foreground py-1.5 pr-3 text-xs tabular-nums'>
-                    {Math.round(c.mem_used / 1024)}/
-                    {Math.round(c.mem_total / 1024)}G
-                  </td>
-                  <td className='py-1.5 pr-3'>
-                    <PoolBadge pool={c.pool} />
-                  </td>
-                  <td className='py-1.5 pr-3'>
-                    {c.project || (
-                      <span className='text-muted-foreground/60'>—</span>
+              {cards.map((c) => {
+                const k = cardKey(c)
+                const checked = selected.has(k)
+                return (
+                  <tr
+                    key={k}
+                    className={cn(
+                      'border-b last:border-0',
+                      checked && 'bg-muted/40'
                     )}
-                  </td>
-                  <td className='text-muted-foreground max-w-48 truncate py-1.5 pr-3 text-xs'>
-                    {c.host_apps.slice(0, 3).join('、') || '—'}
-                  </td>
-                  <td className='py-1.5 text-right'>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      className='h-6 px-2 text-xs'
-                      onClick={() => setEditing(c)}
-                    >
-                      <PencilLine className='mr-1 size-3' />
-                      编辑
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+                  >
+                    <td className='py-1.5 pr-2'>
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggle(c)}
+                        aria-label={`选择 ${c.hostname} GPU${c.gpu_index}`}
+                      />
+                    </td>
+                    <td className='py-1.5 pr-3 font-medium'>{c.hostname}</td>
+                    <td className='py-1.5 pr-3 tabular-nums'>GPU{c.gpu_index}</td>
+                    <td className='text-muted-foreground truncate py-1.5 pr-3 text-xs'>
+                      {c.model}
+                    </td>
+                    <td className='py-1.5 pr-3 tabular-nums'>
+                      {Math.round(c.util)}%
+                    </td>
+                    <td className='text-muted-foreground py-1.5 pr-3 text-xs tabular-nums'>
+                      {Math.round(c.mem_used / 1024)}/
+                      {Math.round(c.mem_total / 1024)}G
+                    </td>
+                    <td className='py-1.5 pr-3'>
+                      <PoolBadge pool={c.pool} />
+                    </td>
+                    <td className='py-1.5 pr-3'>
+                      {c.project || (
+                        <span className='text-muted-foreground/60'>—</span>
+                      )}
+                    </td>
+                    <td className='text-muted-foreground max-w-48 truncate py-1.5 pr-3 text-xs'>
+                      {c.host_apps.slice(0, 3).join('、') || '—'}
+                    </td>
+                    <td className='py-1.5 text-right'>
+                      <Button
+                        size='sm'
+                        variant='ghost'
+                        className='h-6 px-2 text-xs'
+                        onClick={() => setEditing(c)}
+                      >
+                        <PencilLine className='mr-1 size-3' />
+                        编辑
+                      </Button>
+                    </td>
+                  </tr>
+                )
+              })}
               {cards.length === 0 && (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className='text-muted-foreground py-6 text-center text-xs'
                   >
                     这个筛选条件下没有卡
@@ -638,6 +807,15 @@ export function PoolView() {
           card={editing}
           projects={projectsQuery.data ?? []}
           onClose={() => setEditing(null)}
+          onSaved={refresh}
+        />
+      ) : null}
+
+      {batchOpen ? (
+        <BatchEditDialog
+          cards={selectedCards}
+          projects={projectsQuery.data ?? []}
+          onClose={() => setBatchOpen(false)}
           onSaved={refresh}
         />
       ) : null}

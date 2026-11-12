@@ -411,12 +411,12 @@ func GetFleetPoolStats(rangeDays int) (map[string]*FleetPoolStat, []FleetPoolPro
 
 	// 专属池按项目拆
 	type prow struct {
-		Project string  `gorm:"column:project"`
-		SumUtil float64 `gorm:"column:sum_util"`
-		Samples int64   `gorm:"column:samples"`
-		Distinct int64  `gorm:"column:distinct"`
-		MinTs   int64   `gorm:"column:min_ts"`
-		MaxTs   int64   `gorm:"column:max_ts"`
+		Project  string  `gorm:"column:project"`
+		SumUtil  float64 `gorm:"column:sum_util"`
+		Samples  int64   `gorm:"column:samples"`
+		Distinct int64   `gorm:"column:distinct"`
+		MinTs    int64   `gorm:"column:min_ts"`
+		MaxTs    int64   `gorm:"column:max_ts"`
 	}
 	var prows []prow
 	DB.Raw(`SELECT p.project AS project,
@@ -622,10 +622,10 @@ func GetFleetBilling(month string) (map[string]any, error) {
 	sort.Slice(out, func(i, j int) bool { return out[i].TotalHours > out[j].TotalHours })
 
 	return map[string]any{
-		"month":       label,
-		"start":       start,
-		"end":         end,
+		"month":        label,
+		"start":        start,
+		"end":          end,
 		"period_hours": periodHours,
-		"rows":        out,
+		"rows":         out,
 	}, nil
 }

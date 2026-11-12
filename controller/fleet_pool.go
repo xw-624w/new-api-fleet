@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -85,26 +86,54 @@ func FleetSetGpuPool(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"diff": diff})
 }
 
-// FleetBatchGpuPool 批量打标：一台机器上的多张卡一次设置。
+// fleetBatchCard 批量设置里的一张卡。
+type fleetBatchCard struct {
+	HostId   int `json:"host_id"`
+	GpuIndex int `json:"gpu_index"`
+}
+
+// FleetBatchGpuPool 批量打标：支持跨机器勾选，也兼容「一台机器 + 卡号数组」的老写法。
 func FleetBatchGpuPool(c *gin.Context) {
 	var req struct {
-		HostId     int    `json:"host_id"`
-		GpuIndexes []int  `json:"gpu_indexes"`
-		Pool       string `json:"pool"`
-		Project    string `json:"project"`
-		Team       string `json:"team"`
-		Note       string `json:"note"`
+		HostId     int              `json:"host_id"`
+		GpuIndexes []int            `json:"gpu_indexes"`
+		Cards      []fleetBatchCard `json:"cards"`
+		Pool       string           `json:"pool"`
+		Project    string           `json:"project"`
+		Team       string           `json:"team"`
+		Note       string           `json:"note"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.HostId <= 0 {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorMsg(c, "invalid payload")
 		return
 	}
-	n, err := model.BatchSetFleetGpuPool(req.HostId, req.GpuIndexes, req.Pool, req.Project, req.Team, req.Note, c.GetString("username"))
-	if err != nil {
-		common.ApiError(c, err)
+
+	cards := req.Cards
+	if len(cards) == 0 && req.HostId > 0 {
+		for _, idx := range req.GpuIndexes {
+			cards = append(cards, fleetBatchCard{HostId: req.HostId, GpuIndex: idx})
+		}
+	}
+	if len(cards) == 0 {
+		common.ApiErrorMsg(c, "没有选择显卡")
 		return
 	}
-	common.ApiSuccess(c, gin.H{"updated": n})
+	// 一次最多 500 张，防止误传超大数组把库拖住
+	if len(cards) > 500 {
+		common.ApiErrorMsg(c, "一次最多批量设置 500 张卡")
+		return
+	}
+
+	by := c.GetString("username")
+	updated := 0
+	for _, card := range cards {
+		if _, err := model.SetFleetGpuPool(card.HostId, card.GpuIndex, req.Pool, req.Project, req.Team, req.Note, by); err != nil {
+			common.ApiErrorMsg(c, fmt.Sprintf("第 %d 台机器的 GPU%d 设置失败：%v（已成功 %d 张）", card.HostId, card.GpuIndex, err, updated))
+			return
+		}
+		updated++
+	}
+	common.ApiSuccess(c, gin.H{"updated": updated})
 }
 
 // FleetGpuPoolHistory 一张卡的归属变更历史。
