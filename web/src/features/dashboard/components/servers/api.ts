@@ -68,10 +68,11 @@ export async function getFleetSeries(
 export async function getFleetApps(
   top = 10,
   rangeDays = 1,
-  hostId = 0
+  hostId = 0,
+  pool = ''
 ): Promise<FleetAppRow[]> {
   const res = await api.get<Envelope<FleetAppRow[]>>('/api/fleet/apps', {
-    params: { top, range: `${rangeDays}d`, host_id: hostId },
+    params: { top, range: `${rangeDays}d`, host_id: hostId, pool },
   })
   return res.data.data ?? []
 }

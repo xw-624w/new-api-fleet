@@ -145,8 +145,9 @@ export function ServerFleet() {
   })
 
   const appsQuery = useQuery({
-    queryKey: ['fleet-apps', rangeDays, hostFilter],
-    queryFn: () => getFleetApps(8, rangeDays, hostFilter),
+    queryKey: ['fleet-apps', rangeDays, hostFilter, poolScope],
+    queryFn: () =>
+      getFleetApps(8, rangeDays, hostFilter, poolScope === 'all' ? '' : poolScope),
     refetchInterval: 60_000,
   })
 
@@ -179,9 +180,18 @@ export function ServerFleet() {
   const loading =
     summary.isLoading || hostsQuery.isLoading || seriesQuery.isLoading
 
+  const idleOf = (h: (typeof hosts)[number]) =>
+    poolScope === 'all'
+      ? h.idle_cards
+      : poolScope === 'dedicated'
+        ? h.idle_dedicated
+        : poolScope === 'shared'
+          ? h.idle_shared
+          : h.idle_unassigned
+
   const wasted = hosts
-    .filter((h) => h.idle_cards > 0)
-    .sort((a, b) => b.idle_cards - a.idle_cards)
+    .filter((h) => idleOf(h) > 0)
+    .sort((a, b) => idleOf(b) - idleOf(a))
 
   // 把「利用率之和」换算成「占当前口径算力的百分比」：value ÷ 卡数
   // 口径跟着上面的统计口径切换，分母就是当前池的卡数
@@ -596,6 +606,17 @@ export function ServerFleet() {
                 : t('Average GPU utilization over {{days}} days', {
                     days: rangeDays,
                   })}
+              {poolScope !== 'all' ? (
+                <span className='mt-0.5 block text-[11px]'>
+                  已按「
+                  {poolScope === 'dedicated'
+                    ? '专属'
+                    : poolScope === 'shared'
+                      ? '弹性'
+                      : '未分配'}
+                  」池的卡占比折算
+                </span>
+              ) : null}
             </CardDescription>
 
             {/* 机器筛选：默认全部 */}
@@ -741,7 +762,18 @@ export function ServerFleet() {
                 </div>
                 <div className='flex items-center gap-3 text-xs tabular-nums'>
                   <span className='text-rose-500'>
-                    {host.idle_cards} {t('idle cards')}
+                    {idleOf(host)} {t('idle cards')}
+                    {poolScope !== 'all' ? (
+                      <span className='text-muted-foreground'>
+                        （
+                        {poolScope === 'dedicated'
+                          ? '专属'
+                          : poolScope === 'shared'
+                            ? '弹性'
+                            : '未分配'}
+                        池）
+                      </span>
+                    ) : null}
                   </span>
                   <span className='text-muted-foreground'>
                     {host.vram_total > 0

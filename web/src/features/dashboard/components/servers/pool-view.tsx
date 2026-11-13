@@ -261,7 +261,7 @@ function EditCardDialog(props: {
               </datalist>
               {pool === 'shared' ? (
                 <p className='text-muted-foreground text-[11px]'>
-                  弹性 = 允许被其他项目抢占，不代表没人用；这里填的是「当前占用者」，
+                  弹性 = 这张卡允许被重新分配，不代表没人用；这里填的是「当前占用者」，
                   只用于统计和分账，不影响调度。
                 </p>
               ) : null}
@@ -383,7 +383,7 @@ function BatchEditDialog(props: {
               </datalist>
               {pool === 'shared' ? (
                 <p className='text-muted-foreground text-[11px]'>
-                  弹性 = 允许被其他项目抢占；批量填项目表示这些卡当前都被同一个项目占着。
+                  弹性 = 允许被重新分配；批量填项目表示这些卡当前都被同一个项目占着。
                 </p>
               ) : null}
             </div>
@@ -869,7 +869,7 @@ export function PoolView() {
           </CardTitle>
           <CardDescription>
             逐卡打标：勾选多张可批量设置。专属卡填归属项目；弹性卡填「当前占用的项目」，
-            留空表示暂时空闲（弹性 ≠ 没人用，只是允许被抢占）
+            留空表示暂时空闲（弹性 ≠ 没人用，只是允许被重新分配）
           </CardDescription>
         </CardHeader>
         <CardContent className='overflow-x-auto'>
@@ -960,7 +960,7 @@ export function PoolView() {
                           <span className='flex items-center gap-1'>
                             {c.project}
                             <span className='text-muted-foreground/70 text-[10px]'>
-                              可抢占
+                              可分配
                             </span>
                           </span>
                         ) : (

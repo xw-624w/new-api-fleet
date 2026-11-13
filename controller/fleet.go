@@ -158,10 +158,10 @@ func FleetSeries(c *gin.Context) {
 
 func FleetApps(c *gin.Context) {
 	topN, _ := strconv.Atoi(c.DefaultQuery("top", "10"))
-	// ?range=1d|7d|29d &host_id=0(全部)|机器ID
+	// ?range=1d|7d|29d &host_id=0(全部)|机器ID &pool=dedicated|shared|unassigned
 	days := parseRangeDays(c.Query("range"), 1)
 	hostId, _ := strconv.Atoi(c.DefaultQuery("host_id", "0"))
-	apps, err := model.ListFleetApps(topN, days, hostId)
+	apps, err := model.ListFleetApps(topN, days, hostId, c.Query("pool"))
 	if err != nil {
 		common.ApiError(c, err)
 		return

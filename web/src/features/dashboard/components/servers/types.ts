@@ -59,6 +59,10 @@ export interface FleetHostRow {
   pool_dedicated: number
   pool_shared: number
   pool_unassigned: number
+  /** 各池里利用率 < 5% 的闲置卡数 */
+  idle_dedicated: number
+  idle_shared: number
+  idle_unassigned: number
 }
 
 export interface FleetGpu {

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -607,6 +608,10 @@ type FleetHostView struct {
 	PoolDedicated  int `json:"pool_dedicated"`
 	PoolShared     int `json:"pool_shared"`
 	PoolUnassigned int `json:"pool_unassigned"`
+	// 各池里利用率 < 5% 的闲置卡数
+	IdleDedicated  int `json:"idle_dedicated"`
+	IdleShared     int `json:"idle_shared"`
+	IdleUnassigned int `json:"idle_unassigned"`
 }
 
 func ListFleetHosts() ([]FleetHostView, error) {
@@ -675,10 +680,19 @@ func ListFleetHosts() ([]FleetHostView, error) {
 			switch fleetPoolOf(poolMap, g.HostId, g.GpuIndex).Pool {
 			case FleetPoolDedicated:
 				v.PoolDedicated++
+				if g.Util < 5 {
+					v.IdleDedicated++
+				}
 			case FleetPoolShared:
 				v.PoolShared++
+				if g.Util < 5 {
+					v.IdleShared++
+				}
 			default:
 				v.PoolUnassigned++
+				if g.Util < 5 {
+					v.IdleUnassigned++
+				}
 			}
 		}
 		v.GpuSummary = summarizeFleetGpus(gList)
@@ -1092,7 +1106,7 @@ type FleetAppView struct {
 // ListFleetApps 近 24 小时按应用聚合，返回排行。
 // ListFleetApps 按「时间区间 + 机器」筛选后的应用排行。
 // rangeDays：统计窗口天数；hostId：0 表示全部机器。
-func ListFleetApps(topN int, rangeDays int, hostId int) ([]FleetAppView, error) {
+func ListFleetApps(topN int, rangeDays int, hostId int, pool string) ([]FleetAppView, error) {
 	if topN <= 0 {
 		topN = 10
 	}
@@ -1178,6 +1192,32 @@ func ListFleetApps(topN int, rangeDays int, hostId int) ([]FleetAppView, error) 
 		}
 	}
 
+	// 按池折算：应用不知道落在哪张卡上，用「该机属于该池的卡占比」缩放，
+	// 保证和顶部 KPI、分账用的是同一套口径。
+	pool = strings.TrimSpace(strings.ToLower(pool))
+	if pool == "all" {
+		pool = ""
+	}
+	poolRatio := map[int]float64{}
+	if pool != "" {
+		poolMap := loadFleetPoolMap()
+		var allGpus []FleetGpu
+		DB.Find(&allGpus)
+		hostTotal := map[int]int{}
+		hostInPool := map[int]int{}
+		for _, g := range allGpus {
+			hostTotal[g.HostId]++
+			if fleetPoolOf(poolMap, g.HostId, g.GpuIndex).Pool == pool {
+				hostInPool[g.HostId]++
+			}
+		}
+		for h, total := range hostTotal {
+			if total > 0 {
+				poolRatio[h] = float64(hostInPool[h]) / float64(total)
+			}
+		}
+	}
+
 	views := make([]FleetAppView, 0, len(apps))
 	for _, a := range apps {
 		st := statMap[a.Id]
@@ -1185,10 +1225,28 @@ func ListFleetApps(topN int, rangeDays int, hostId int) ([]FleetAppView, error) 
 		if util == 0 {
 			util = a.GpuUtil
 		}
+		hours := st.gpuHour
+		cards := a.GpuCount
+		if pool != "" {
+			ratio := poolRatio[a.HostId]
+			// 这台机器在这个池里一张卡都没有，就不该出现在该口径下
+			if ratio <= 0 {
+				continue
+			}
+			util *= ratio
+			hours *= ratio
+			if cards > 0 {
+				scaled := int(math.Round(float64(cards) * ratio))
+				if scaled < 1 {
+					scaled = 1
+				}
+				cards = scaled
+			}
+		}
 		views = append(views, FleetAppView{
 			Name: a.Name, DisplayName: a.DisplayName, Detail: a.Detail, Owner: a.OwnerName,
 			Kind: a.Kind, Host: hostName[a.HostId],
-			GpuUtil: util, GpuCount: a.GpuCount, GpuHours: st.gpuHour, CoveredHours: st.covered,
+			GpuUtil: util, GpuCount: cards, GpuHours: hours, CoveredHours: st.covered,
 			VramUsed: a.VramUsed, Estimated: a.Estimated,
 		})
 	}
