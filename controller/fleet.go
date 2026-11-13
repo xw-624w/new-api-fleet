@@ -106,7 +106,7 @@ func FleetHostDetail(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid host id")
 		return
 	}
-	data, err := model.FleetHostDetail(id)
+	data, err := model.FleetHostDetail(id, parseRangeDays(c.Query("range"), 1))
 	if err != nil {
 		common.ApiError(c, err)
 		return

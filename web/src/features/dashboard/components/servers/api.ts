@@ -50,8 +50,13 @@ export async function getFleetHosts(): Promise<FleetHostRow[]> {
   return res.data.data ?? []
 }
 
-export async function getFleetHostDetail(id: number): Promise<FleetHostDetail> {
-  const res = await api.get<Envelope<FleetHostDetail>>(`/api/fleet/hosts/${id}`)
+export async function getFleetHostDetail(
+  id: number,
+  rangeDays = 1
+): Promise<FleetHostDetail> {
+  const res = await api.get<Envelope<FleetHostDetail>>(`/api/fleet/hosts/${id}`, {
+    params: { range: `${rangeDays}d` },
+  })
   return res.data.data
 }
 

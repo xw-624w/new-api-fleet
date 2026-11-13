@@ -159,8 +159,8 @@ export function ServerFleet() {
   })
 
   const detailQuery = useQuery({
-    queryKey: ['fleet-host', selectedHostId],
-    queryFn: () => getFleetHostDetail(selectedHostId as number),
+    queryKey: ['fleet-host', selectedHostId, rangeDays],
+    queryFn: () => getFleetHostDetail(selectedHostId as number, rangeDays),
     enabled: selectedHostId != null,
     refetchInterval: 30_000,
   })
@@ -943,8 +943,15 @@ function HostDetailCard({
                   </span>
                 </div>
               ) : null}
-              <div className='mt-1 text-sm font-semibold tabular-nums'>
+              <div className='mt-1 flex items-baseline gap-1 text-sm font-semibold tabular-nums'>
                 {Math.round(g.util)}%
+                <span className='text-muted-foreground text-[9px] font-normal'>
+                  瞬时
+                </span>
+              </div>
+              <div className='text-muted-foreground mt-0.5 text-[9px] tabular-nums'>
+                平均 {Math.round(g.window_avg_util ?? 0)}% · 峰值{' '}
+                {Math.round(g.peak_util ?? 0)}%
               </div>
               <div className='bg-muted mt-1 h-1 overflow-hidden rounded-full'>
                 <div

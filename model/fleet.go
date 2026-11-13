@@ -155,6 +155,9 @@ type FleetGpu struct {
 	Pool    string `json:"pool" gorm:"-"`
 	Project string `json:"project" gorm:"-"`
 	Team    string `json:"team" gorm:"-"`
+	// 区间平均 / 峰值利用率（查询时按采样计算，不落库）
+	WindowAvgUtil float64 `json:"window_avg_util" gorm:"-"`
+	PeakUtil      float64 `json:"peak_util" gorm:"-"`
 }
 
 func (FleetGpu) TableName() string { return "fleet_gpus" }
@@ -959,7 +962,10 @@ func max64(a, b int64) int64 {
 }
 
 // FleetHostDetail 单机详情：机器 + 台账 + 每卡 + 每应用。
-func FleetHostDetail(hostId int) (map[string]any, error) {
+func FleetHostDetail(hostId int, days int) (map[string]any, error) {
+	if days <= 0 {
+		days = 1
+	}
 	var host FleetHost
 	if err := DB.First(&host, hostId).Error; err != nil {
 		return nil, err
@@ -970,6 +976,32 @@ func FleetHostDetail(hostId int) (map[string]any, error) {
 	}
 	var gpus []FleetGpu
 	DB.Where("host_id = ?", hostId).Order("vendor ASC, gpu_index ASC").Find(&gpus)
+
+	// 每张卡的区间平均 / 峰值利用率，让单卡卡片不只是一个瞬时 0%
+	since := fleetPoolWindowStart(days)
+	var stats []struct {
+		Vendor   string  `gorm:"column:vendor"`
+		GpuIndex int     `gorm:"column:gpu_index"`
+		AvgUtil  float64 `gorm:"column:avg_util"`
+		PeakUtil float64 `gorm:"column:peak_util"`
+		Samples  int64   `gorm:"column:samples"`
+	}
+	DB.Raw(`SELECT vendor, gpu_index,
+	               COALESCE(AVG(util),0) AS avg_util,
+	               COALESCE(MAX(util),0) AS peak_util,
+	               COUNT(*) AS samples
+	        FROM fleet_gpu_samples
+	        WHERE host_id = ? AND ts >= ?
+	        GROUP BY vendor, gpu_index`, hostId, since).Scan(&stats)
+	type cardStat struct {
+		avg, peak float64
+		samples   int64
+	}
+	statMap := make(map[string]cardStat, len(stats))
+	for _, s := range stats {
+		statMap[s.Vendor+"|"+strconv.Itoa(s.GpuIndex)] = cardStat{s.AvgUtil, s.PeakUtil, s.Samples}
+	}
+
 	// 带上归属，单机详情里直接逐卡打标
 	poolMap := loadFleetPoolMap()
 	for i := range gpus {
@@ -977,6 +1009,10 @@ func FleetHostDetail(hostId int) (map[string]any, error) {
 		gpus[i].Pool = p.Pool
 		gpus[i].Project = p.Project
 		gpus[i].Team = p.Team
+		if st, ok := statMap[gpus[i].Vendor+"|"+strconv.Itoa(gpus[i].GpuIndex)]; ok && st.samples > 0 {
+			gpus[i].WindowAvgUtil = st.avg
+			gpus[i].PeakUtil = st.peak
+		}
 	}
 	var apps []FleetApp
 	DB.Where("host_id = ?", hostId).Order("gpu_util DESC").Find(&apps)

@@ -86,6 +86,9 @@ export interface FleetGpu {
   pool?: FleetPoolKind
   project?: string
   team?: string
+  /** 区间平均 / 峰值利用率 */
+  window_avg_util?: number
+  peak_util?: number
 }
 
 export interface FleetApp {
