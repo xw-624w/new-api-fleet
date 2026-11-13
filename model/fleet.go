@@ -430,6 +430,16 @@ func FleetIngest(agent *FleetAgent, rep *FleetReport) (*FleetHost, error) {
 		return nil, err
 	}
 
+	// 本次上报里真正出现的卡，用于清理幽灵卡
+	seenCards := make(map[string]bool, len(rep.Gpus))
+	for _, g := range rep.Gpus {
+		v := g.Vendor
+		if v == "" {
+			v = "nvidia"
+		}
+		seenCards[v+"|"+strconv.Itoa(g.Index)] = true
+	}
+
 	for _, g := range rep.Gpus {
 		vendor := g.Vendor
 		if vendor == "" {
@@ -487,7 +497,51 @@ func FleetIngest(agent *FleetAgent, rep *FleetReport) (*FleetHost, error) {
 	}
 
 	maybePruneFleetSamples()
+	// 10 分钟没更新的卡视为残留（正常上报间隔是秒级）
+	pruneStaleFleetGpus(host.Id, seenCards, ts, 600)
 	return host, nil
+}
+
+// pruneStaleFleetGpus 清理「本次上报里没有、且长期没更新」的卡。
+//
+// 典型场景：机器换过卡 / 换过驱动 / 跑过旧版 agent，数据库里会残留
+// 一些 mem_total=0、利用率恒为 0 的幽灵卡，还会和真卡抢同一个 gpu_index。
+//
+// 安全约束（避免误删）：
+//   - 本次上报至少要有 1 张卡，否则视为「这次没探到」，什么都不删
+//   - 只删 last_ts 超过 graceSec 没更新的，正在上报的卡不受影响
+func pruneStaleFleetGpus(hostId int, vendorIdx map[string]bool, ts int64, graceSec int64) {
+	if len(vendorIdx) == 0 {
+		return
+	}
+	var existing []FleetGpu
+	if err := DB.Where("host_id = ?", hostId).Find(&existing).Error; err != nil {
+		return
+	}
+	for _, g := range existing {
+		if vendorIdx[g.Vendor+"|"+strconv.Itoa(g.GpuIndex)] {
+			continue
+		}
+		if ts-g.LastTs < graceSec {
+			continue
+		}
+		// 这个 index 上如果还有别的厂商的活卡，池记录不能删
+		sharedIndex := false
+		for _, other := range existing {
+			if other.Id != g.Id && other.GpuIndex == g.GpuIndex && ts-other.LastTs < graceSec {
+				sharedIndex = true
+				break
+			}
+		}
+		DB.Delete(&FleetGpu{}, g.Id)
+		// 幽灵卡的采样一起清掉，否则会挂在未分配池里算卡时
+		DB.Where("host_id = ? AND gpu_index = ? AND vendor = ?", hostId, g.GpuIndex, g.Vendor).
+			Delete(&FleetGpuSample{})
+		if !sharedIndex {
+			DB.Where("host_id = ? AND gpu_index = ?", hostId, g.GpuIndex).
+				Delete(&FleetGpuPool{})
+		}
+	}
 }
 
 func upsertFleetHost(agent *FleetAgent, rep *FleetReport, ts int64) (*FleetHost, error) {
