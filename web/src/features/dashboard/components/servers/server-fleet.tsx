@@ -30,6 +30,7 @@ import {
   Server,
   Shield,
   Thermometer,
+  TrendingUp,
   Zap,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -297,7 +298,7 @@ export function ServerFleet() {
         </span>
       </div>
 
-      <div className='grid grid-cols-2 gap-3 lg:grid-cols-5'>
+      <div className='grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6'>
         <StatTile
           icon={Server}
           label={t('Total GPUs')}
@@ -315,9 +316,29 @@ export function ServerFleet() {
         />
         <StatTile
           icon={Gauge}
-          label={t('Avg Utilization')}
-          value={`${Math.round(s?.avg_util ?? 0)}%`}
-          hint={t('All collected GPUs')}
+          label='平均利用率'
+          value={`${Math.round(s?.window_avg_util ?? 0)}%`}
+          hint={`区间平均 · 瞬时 ${Math.round(s?.avg_util ?? 0)}%`}
+        />
+        <StatTile
+          icon={TrendingUp}
+          label='峰值利用率'
+          value={
+            (s?.peak_util ?? 0) > 0 ? `${Math.round(s?.peak_util ?? 0)}%` : '—'
+          }
+          hint={
+            (s?.peak_util_at ?? 0) > 0
+              ? `单卡最高 · ${new Date((s?.peak_util_at ?? 0) * 1000).toLocaleString(
+                  [],
+                  {
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }
+                )}`
+              : '区间内没有采样'
+          }
         />
         <StatTile
           icon={MemoryStick}

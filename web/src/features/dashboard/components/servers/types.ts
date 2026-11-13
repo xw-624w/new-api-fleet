@@ -23,6 +23,11 @@ export interface FleetSummary {
   hosts: { total: number; online: number }
   gpus: { total: number; nvidia: number; intel: number; in_use: number }
   avg_util: number
+  /** 区间内所有采样的平均利用率 */
+  window_avg_util: number
+  /** 区间内最高利用率及其时间 */
+  peak_util: number
+  peak_util_at: number
   vram_used: number
   vram_total: number
   gpu_hours_today: number

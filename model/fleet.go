@@ -792,6 +792,11 @@ type FleetSummary struct {
 		InUse  int `json:"in_use"`
 	} `json:"gpus"`
 	AvgUtil       float64 `json:"avg_util"`
+	// 区间口径：WindowAvgUtil = 窗口内所有采样的平均利用率；
+	// PeakUtil / PeakUtilAt = 窗口内最高利用率及其发生时间
+	WindowAvgUtil float64 `json:"window_avg_util"`
+	PeakUtil      float64 `json:"peak_util"`
+	PeakUtilAt    int64   `json:"peak_util_at"`
 	VramUsed      int64   `json:"vram_used"`
 	VramTotal     int64   `json:"vram_total"`
 	GpuHoursToday float64 `json:"gpu_hours_today"`
@@ -890,6 +895,7 @@ func GetFleetSummary(rangeDays int, pool string) (*FleetSummary, error) {
 	todayStart := windowStart
 	var agg struct {
 		SumUtil  float64 `gorm:"column:sum_util"`
+		MaxUtil  float64 `gorm:"column:max_util"`
 		Samples  int64   `gorm:"column:samples"`
 		Distinct int64   `gorm:"column:distinct"`
 		MinTs    int64   `gorm:"column:min_ts"`
@@ -897,11 +903,11 @@ func GetFleetSummary(rangeDays int, pool string) (*FleetSummary, error) {
 	}
 	if pool == "" {
 		DB.Model(&FleetGpuSample{}).
-			Select("COALESCE(SUM(util),0) as sum_util, COUNT(*) as samples, COUNT(DISTINCT ts) as distinct, MIN(ts) as min_ts, MAX(ts) as max_ts").
+			Select("COALESCE(SUM(util),0) as sum_util, COALESCE(MAX(util),0) as max_util, COUNT(*) as samples, COUNT(DISTINCT ts) as distinct, MIN(ts) as min_ts, MAX(ts) as max_ts").
 			Where("ts >= ?", todayStart).Scan(&agg)
 	} else {
-		DB.Raw(`SELECT COALESCE(SUM(s.util),0) AS sum_util, COUNT(*) AS samples,
-		               COUNT(DISTINCT s.ts) AS distinct, MIN(s.ts) AS min_ts, MAX(s.ts) AS max_ts
+		DB.Raw(`SELECT COALESCE(SUM(s.util),0) AS sum_util, COALESCE(MAX(s.util),0) AS max_util,
+		               COUNT(*) AS samples, COUNT(DISTINCT s.ts) AS distinct, MIN(s.ts) AS min_ts, MAX(s.ts) AS max_ts
 		        FROM fleet_gpu_samples s
 		        JOIN fleet_gpu_pools p
 		          ON p.host_id = s.host_id AND p.gpu_index = s.gpu_index
@@ -913,10 +919,29 @@ func GetFleetSummary(rangeDays int, pool string) (*FleetSummary, error) {
 			interval = float64(agg.MaxTs-agg.MinTs) / float64(agg.Distinct-1)
 		}
 		s.GpuHoursToday = agg.SumUtil / 100 * interval / 3600
+		// 区间平均利用率：所有采样点的算术平均，比瞬时值稳定
+		s.WindowAvgUtil = agg.SumUtil / float64(agg.Samples)
+		s.PeakUtil = agg.MaxUtil
 		// 今日样本实际覆盖的小时数：用来把"卡时"翻译成"平均几张卡在跑"
 		if agg.MaxTs > agg.MinTs {
 			s.CoveredHoursToday = float64(agg.MaxTs-agg.MinTs) / 3600
 		}
+	}
+
+	// 峰值出现在什么时候（同一套口径，单独取一条）
+	if agg.Samples > 0 && agg.MaxUtil > 0 {
+		var peak struct {
+			Ts int64 `gorm:"column:ts"`
+		}
+		if pool == "" {
+			DB.Model(&FleetGpuSample{}).Where("ts >= ? AND util >= ?", todayStart, agg.MaxUtil).
+				Select("MAX(ts) as ts").Scan(&peak)
+		} else {
+			DB.Raw(`SELECT MAX(s.ts) AS ts FROM fleet_gpu_samples s
+			         JOIN fleet_gpu_pools p ON p.host_id = s.host_id AND p.gpu_index = s.gpu_index
+			         WHERE s.ts >= ? AND p.pool = ? AND s.util >= ?`, todayStart, pool, agg.MaxUtil).Scan(&peak)
+		}
+		s.PeakUtilAt = peak.Ts
 	}
 
 	s.Degraded = s.LastIngestAt == 0 || time.Now().Unix()-s.LastIngestAt > fleetOfflineAfterSec
