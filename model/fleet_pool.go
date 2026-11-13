@@ -182,7 +182,8 @@ func SetFleetGpuPool(hostId, gpuIndex int, pool, project, team, note, by string)
 			return nil, fmt.Errorf("专属卡必须填写项目名")
 		}
 	case FleetPoolShared:
-		project, team = "", ""
+		// 弹性 = 允许被调度，不代表空着：project 表示「当前占用它的项目」。
+		// 留空即当前无人占用（空闲）。
 	case FleetPoolUnassigned:
 		project, team, note = "", "", ""
 	default:
@@ -306,6 +307,9 @@ type FleetPoolStat struct {
 	AvgUtil   float64 `json:"avg_util"`
 	GpuHours  float64 `json:"gpu_hours"`
 	Projects  int     `json:"projects"`
+	// Occupied = 有「当前项目」的卡数。
+	// 专属卡 = 已归属；弹性卡 = 当前被某项目占着（可被抢占）；未分配恒为 0。
+	Occupied int `json:"occupied"`
 }
 
 type FleetPoolProject struct {
@@ -347,9 +351,11 @@ func GetFleetPoolStats(rangeDays int) (map[string]*FleetPoolStat, []FleetPoolPro
 		return nil, nil, err
 	}
 	poolMap := loadFleetPoolMap()
-	projectCards := map[string]map[string]int{} // project -> host:idx
-	projectSumUtil := map[string]float64{}
-	projectSamples := map[string]int{}
+	projectCards := map[string]map[string]int{}  // 专属：项目 -> host:idx
+	sharedCards := map[string]map[string]int{}   // 弹性：当前占用项目 -> host:idx
+	poolProjects := map[string]map[string]bool{} // 池 -> 项目集合
+	utilByKey := map[string]float64{}            // pool|project -> 当前利用率累加
+	samplesByKey := map[string]int{}
 	for _, g := range gpus {
 		p := fleetPoolOf(poolMap, g.HostId, g.GpuIndex)
 		st := get(p.Pool)
@@ -362,13 +368,30 @@ func GetFleetPoolStats(rangeDays int) (map[string]*FleetPoolStat, []FleetPoolPro
 		} else {
 			st.Idle++
 		}
-		if p.Pool == FleetPoolDedicated && p.Project != "" {
+		if p.Project == "" {
+			continue
+		}
+		key := fmt.Sprintf("%d:%d", g.HostId, g.GpuIndex)
+		st.Occupied++
+		if poolProjects[p.Pool] == nil {
+			poolProjects[p.Pool] = map[string]bool{}
+		}
+		poolProjects[p.Pool][p.Project] = true
+		pk := p.Pool + "|" + p.Project
+		utilByKey[pk] += g.Util
+		samplesByKey[pk]++
+
+		switch p.Pool {
+		case FleetPoolDedicated:
 			if projectCards[p.Project] == nil {
 				projectCards[p.Project] = map[string]int{}
 			}
-			projectCards[p.Project][fmt.Sprintf("%d:%d", g.HostId, g.GpuIndex)]++
-			projectSumUtil[p.Project] += g.Util
-			projectSamples[p.Project]++
+			projectCards[p.Project][key]++
+		case FleetPoolShared:
+			if sharedCards[p.Project] == nil {
+				sharedCards[p.Project] = map[string]int{}
+			}
+			sharedCards[p.Project][key]++
 		}
 	}
 	for _, st := range stats {
@@ -376,7 +399,11 @@ func GetFleetPoolStats(rangeDays int) (map[string]*FleetPoolStat, []FleetPoolPro
 			st.AvgUtil = st.AvgUtil / float64(st.Cards)
 		}
 	}
-	stats[FleetPoolDedicated].Projects = len(projectCards)
+	for name, set := range poolProjects {
+		if st, ok := stats[name]; ok {
+			st.Projects = len(set)
+		}
+	}
 
 	// 区间卡时：SUM(util)/100 × 采样间隔 / 3600
 	var agg []struct {
@@ -409,8 +436,9 @@ func GetFleetPoolStats(rangeDays int) (map[string]*FleetPoolStat, []FleetPoolPro
 		}
 	}
 
-	// 专属池按项目拆
+	// 按「池 + 项目」拆：专属是归属，弹性是当前占用
 	type prow struct {
+		Pool     string  `gorm:"column:pool"`
 		Project  string  `gorm:"column:project"`
 		SumUtil  float64 `gorm:"column:sum_util"`
 		Samples  int64   `gorm:"column:samples"`
@@ -419,7 +447,7 @@ func GetFleetPoolStats(rangeDays int) (map[string]*FleetPoolStat, []FleetPoolPro
 		MaxTs    int64   `gorm:"column:max_ts"`
 	}
 	var prows []prow
-	DB.Raw(`SELECT p.project AS project,
+	DB.Raw(`SELECT p.pool AS pool, p.project AS project,
 	               COALESCE(SUM(s.util), 0) AS sum_util,
 	               COUNT(*) AS samples,
 	               COUNT(DISTINCT s.ts) AS distinct,
@@ -427,24 +455,43 @@ func GetFleetPoolStats(rangeDays int) (map[string]*FleetPoolStat, []FleetPoolPro
 	        FROM fleet_gpu_samples s
 	        JOIN fleet_gpu_pools p
 	          ON p.host_id = s.host_id AND p.gpu_index = s.gpu_index
-	        WHERE s.ts >= ? AND p.pool = ?
-	        GROUP BY 1`, windowStart, FleetPoolDedicated).Scan(&prows)
+	        WHERE s.ts >= ? AND COALESCE(p.project, '') <> ''
+	        GROUP BY 1, 2`, windowStart).Scan(&prows)
 
-	projects := make([]FleetPoolProject, 0, len(projectCards))
-	for name, cards := range projectCards {
-		row := FleetPoolProject{Pool: FleetPoolDedicated, Project: name, Cards: len(cards)}
-		if projectSamples[name] > 0 {
-			row.AvgUtil = projectSumUtil[name] / float64(projectSamples[name])
+	hoursByKey := map[string]float64{}
+	for _, pr := range prows {
+		interval := 30.0
+		if pr.MaxTs > pr.MinTs && pr.Distinct > 1 {
+			interval = float64(pr.MaxTs-pr.MinTs) / float64(pr.Distinct-1)
 		}
-		for _, pr := range prows {
-			if pr.Project != name {
-				continue
-			}
-			interval := 30.0
-			if pr.MaxTs > pr.MinTs && pr.Distinct > 1 {
-				interval = float64(pr.MaxTs-pr.MinTs) / float64(pr.Distinct-1)
-			}
-			row.GpuHours = pr.SumUtil / 100 * interval / 3600
+		hoursByKey[pr.Pool+"|"+pr.Project] = pr.SumUtil / 100 * interval / 3600
+	}
+
+	cardsByKey := map[string]int{}
+	for name, cards := range projectCards {
+		cardsByKey[FleetPoolDedicated+"|"+name] = len(cards)
+	}
+	for name, cards := range sharedCards {
+		cardsByKey[FleetPoolShared+"|"+name] = len(cards)
+	}
+
+	keys := map[string]bool{}
+	for k := range cardsByKey {
+		keys[k] = true
+	}
+	for k := range hoursByKey {
+		keys[k] = true
+	}
+	projects := make([]FleetPoolProject, 0, len(keys))
+	for k := range keys {
+		sep := strings.Index(k, "|")
+		if sep < 0 {
+			continue
+		}
+		poolName, name := k[:sep], k[sep+1:]
+		row := FleetPoolProject{Pool: poolName, Project: name, Cards: cardsByKey[k], GpuHours: hoursByKey[k]}
+		if samplesByKey[k] > 0 {
+			row.AvgUtil = utilByKey[k] / float64(samplesByKey[k])
 		}
 		projects = append(projects, row)
 	}
@@ -552,6 +599,29 @@ func GetFleetBilling(month string) (map[string]any, error) {
 		get(e.Project).EffectiveHours = e.SumUtil / 100 * interval / 3600
 	}
 
+	// 弹性卡：填了「当前项目」的，按卡把这张卡的有效卡时记给该项目
+	// （弹性 ≠ 空闲，只是允许被抢占）
+	var flexEff []struct {
+		Project  string  `gorm:"column:project"`
+		SumUtil  float64 `gorm:"column:sum_util"`
+		Distinct int64   `gorm:"column:distinct"`
+		MinTs    int64   `gorm:"column:min_ts"`
+		MaxTs    int64   `gorm:"column:max_ts"`
+	}
+	DB.Raw(`SELECT p.project AS project, COALESCE(SUM(s.util),0) AS sum_util,
+	               COUNT(DISTINCT s.ts) AS distinct, MIN(s.ts) AS min_ts, MAX(s.ts) AS max_ts
+	        FROM fleet_gpu_samples s
+	        JOIN fleet_gpu_pools p ON p.host_id = s.host_id AND p.gpu_index = s.gpu_index
+	        WHERE s.ts >= ? AND s.ts < ? AND p.pool = ? AND COALESCE(p.project,'') <> ''
+	        GROUP BY 1`, start, end, FleetPoolShared).Scan(&flexEff)
+	for _, e := range flexEff {
+		interval := 30.0
+		if e.MaxTs > e.MinTs && e.Distinct > 1 {
+			interval = float64(e.MaxTs-e.MinTs) / float64(e.Distinct-1)
+		}
+		get(e.Project).SharedHours += e.SumUtil / 100 * interval / 3600
+	}
+
 	// 弹性卡：按应用分摊到项目
 	var apps []FleetApp
 	DB.Find(&apps)
@@ -579,9 +649,15 @@ func GetFleetBilling(month string) (map[string]any, error) {
 	hostFlexible := map[int]int{}
 	for _, g := range allGpus {
 		hostTotal[g.HostId]++
-		if fleetPoolOf(poolMap, g.HostId, g.GpuIndex).Pool != FleetPoolDedicated {
-			hostFlexible[g.HostId]++
+		p := fleetPoolOf(poolMap, g.HostId, g.GpuIndex)
+		// 已经按卡记到项目上的弹性卡不再参与应用分摊，否则会重复计一次
+		if p.Pool == FleetPoolDedicated {
+			continue
 		}
+		if p.Pool == FleetPoolShared && p.Project != "" {
+			continue
+		}
+		hostFlexible[g.HostId]++
 	}
 
 	var shared []struct {

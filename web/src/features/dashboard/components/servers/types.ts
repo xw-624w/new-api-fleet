@@ -165,6 +165,8 @@ export interface FleetPoolStat {
   avg_util: number
   gpu_hours: number
   projects: number
+  /** 有「当前项目」的卡数：专属=已归属，弹性=当前被某项目占着 */
+  occupied: number
 }
 
 export interface FleetPoolProject {

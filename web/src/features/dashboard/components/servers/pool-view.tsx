@@ -125,6 +125,7 @@ function StatCard(props: {
   idle: number
   hours: number
   projectCount?: number
+  occupied?: number
   dimmed?: boolean
 }) {
   const meta = POOL_META[props.pool]
@@ -159,6 +160,11 @@ function StatCard(props: {
         {props.hours.toFixed(1)} 卡时
         {props.pool === 'dedicated' && props.projectCount != null
           ? ` · ${props.projectCount} 个项目`
+          : ''}
+        {props.pool === 'shared'
+          ? props.occupied
+            ? ` · ${props.occupied} 张被 ${props.projectCount ?? 0} 个项目占着`
+            : ' · 当前全部空闲待分配'
           : ''}
       </div>
     </div>
@@ -231,15 +237,21 @@ function EditCardDialog(props: {
     >
       <div className='grid gap-3 py-1'>
         <PoolPicker pool={pool} onChange={setPool} />
-        {pool === 'dedicated' && (
+        {pool !== 'unassigned' && (
           <>
             <div className='grid gap-1.5'>
-              <Label htmlFor='pool-project'>归属项目</Label>
+              <Label htmlFor='pool-project'>
+                {pool === 'dedicated' ? '归属项目' : '当前占用项目（可选）'}
+              </Label>
               <Input
                 id='pool-project'
                 list='pool-project-options'
                 value={project}
-                placeholder='例如：客服机器人'
+                placeholder={
+                  pool === 'dedicated'
+                    ? '例如：客服机器人'
+                    : '留空 = 当前空闲；填了表示目前被这个项目占着'
+                }
                 onChange={(e) => setProject(e.target.value)}
               />
               <datalist id='pool-project-options'>
@@ -247,6 +259,12 @@ function EditCardDialog(props: {
                   <option key={p} value={p} />
                 ))}
               </datalist>
+              {pool === 'shared' ? (
+                <p className='text-muted-foreground text-[11px]'>
+                  弹性 = 允许被其他项目抢占，不代表没人用；这里填的是「当前占用者」，
+                  只用于统计和分账，不影响调度。
+                </p>
+              ) : null}
             </div>
             <div className='grid gap-1.5'>
               <Label htmlFor='pool-team'>所属团队（可选）</Label>
@@ -341,15 +359,21 @@ function BatchEditDialog(props: {
     >
       <div className='grid gap-3 py-1'>
         <PoolPicker pool={pool} onChange={setPool} />
-        {pool === 'dedicated' && (
+        {pool !== 'unassigned' && (
           <>
             <div className='grid gap-1.5'>
-              <Label htmlFor='batch-project'>归属项目</Label>
+              <Label htmlFor='batch-project'>
+                {pool === 'dedicated' ? '归属项目' : '当前占用项目（可选）'}
+              </Label>
               <Input
                 id='batch-project'
                 list='batch-project-options'
                 value={project}
-                placeholder='例如：客服机器人'
+                placeholder={
+                  pool === 'dedicated'
+                    ? '例如：客服机器人'
+                    : '留空 = 当前空闲；填了表示目前被这个项目占着'
+                }
                 onChange={(e) => setProject(e.target.value)}
               />
               <datalist id='batch-project-options'>
@@ -357,6 +381,11 @@ function BatchEditDialog(props: {
                   <option key={p} value={p} />
                 ))}
               </datalist>
+              {pool === 'shared' ? (
+                <p className='text-muted-foreground text-[11px]'>
+                  弹性 = 允许被其他项目抢占；批量填项目表示这些卡当前都被同一个项目占着。
+                </p>
+              ) : null}
             </div>
             <div className='grid gap-1.5'>
               <Label htmlFor='batch-team'>所属团队（可选）</Label>
@@ -616,6 +645,7 @@ export function PoolView() {
               idle={st?.idle ?? 0}
               hours={st?.gpu_hours ?? 0}
               projectCount={st?.projects ?? 0}
+              occupied={st?.occupied ?? 0}
               dimmed={false}
             />
           )
@@ -684,7 +714,14 @@ export function PoolView() {
                   <tbody>
                     {projectRows.map((p) => (
                       <tr key={p.project} className='border-b last:border-0'>
-                        <td className='py-1.5 pr-3 font-medium'>{p.project}</td>
+                        <td className='py-1.5 pr-3 font-medium'>
+                        {p.project}
+                        {p.pool === 'shared' ? (
+                          <span className='ml-1 rounded bg-emerald-500/12 px-1 py-px text-[10px] text-emerald-600'>
+                            弹性占用
+                          </span>
+                        ) : null}
+                      </td>
                         <td className='py-1.5 pr-3 text-right tabular-nums'>
                           {p.cards}
                         </td>
@@ -742,7 +779,7 @@ export function PoolView() {
                 <Boxes className='size-4' />
                 分账 · 按项目
               </CardTitle>
-              <CardDescription>专属卡按归属计，弹性卡按应用分摊</CardDescription>
+              <CardDescription>专属卡按归属计；弹性卡优先按「当前占用项目」，没标的按应用分摊</CardDescription>
             </div>
             <div className='flex items-center gap-1.5'>
               <Input
@@ -831,7 +868,8 @@ export function PoolView() {
             显卡归属
           </CardTitle>
           <CardDescription>
-            逐卡打标：勾选多张可批量设置；专属卡填项目，弹性卡留空
+            逐卡打标：勾选多张可批量设置。专属卡填归属项目；弹性卡填「当前占用的项目」，
+            留空表示暂时空闲（弹性 ≠ 没人用，只是允许被抢占）
           </CardDescription>
         </CardHeader>
         <CardContent className='overflow-x-auto'>
@@ -917,8 +955,25 @@ export function PoolView() {
                       <PoolBadge pool={c.pool} />
                     </td>
                     <td className='py-1.5 pr-3'>
-                      {c.project || (
-                        <span className='text-muted-foreground/60'>—</span>
+                      {c.pool === 'shared' ? (
+                        c.project ? (
+                          <span className='flex items-center gap-1'>
+                            {c.project}
+                            <span className='text-muted-foreground/70 text-[10px]'>
+                              可抢占
+                            </span>
+                          </span>
+                        ) : (
+                          <span className='text-muted-foreground/70 text-xs'>
+                            空闲（可分配）
+                          </span>
+                        )
+                      ) : c.pool === 'unassigned' ? (
+                        <span className='text-muted-foreground/60 text-xs'>
+                          未打标
+                        </span>
+                      ) : (
+                        c.project
                       )}
                     </td>
                     <td className='text-muted-foreground max-w-48 truncate py-1.5 pr-3 text-xs'>
